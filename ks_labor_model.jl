@@ -1098,14 +1098,14 @@ Consumption market clearing
 """
 function consumption_market!(model)
     # Total desired consumption (wages + benefits)
-    total_wages = sum(w.wage for w in allagents(model) if w isa Worker && w.employed > 0)
-    unemployed = sum(1 for w in allagents(model) if w isa Worker && w.employed == 0)
+    total_wages = sum(w.wage for w in allagents(model) if w isa Worker && w.employed > 0; init=0.0)
+    unemployed = sum(1 for w in allagents(model) if w isa Worker && w.employed == 0; init=0)
     unemployment_benefits = unemployed * abmproperties(model).unemployment_benefit
     
     desired_consumption = (total_wages + unemployment_benefits) * getparam(model, :labor_scale)
     
     # Total supply
-    total_supply = sum(f.production + f.inventories for f in allagents(model) if f isa Firm2)
+    total_supply = sum(f.production + f.inventories for f in allagents(model) if f isa Firm2; init=0.0)
     
     # Allocate demand to firms based on competitiveness
     firms2 = [f for f in allagents(model) if f isa Firm2]
@@ -1130,7 +1130,7 @@ function consumption_market!(model)
     end
     
     # Normalize competitiveness to market shares using replicator dynamics
-    total_comp = sum(f.competitiveness for f in firms2)
+    total_comp = sum(f.competitiveness for f in firms2; init=0.0)
     if total_comp > 0
         for firm in firms2
             firm.market_share = firm.competitiveness / total_comp
@@ -1147,7 +1147,7 @@ function consumption_market!(model)
     end
     
     # Calculate forced savings if supply insufficient
-    total_sales = sum(f.sales for f in firms2)
+    total_sales = sum(f.sales for f in firms2; init=0.0)
     abmproperties(model).forced_savings = max(0.0, desired_consumption - total_sales)
 end
 
@@ -1163,7 +1163,7 @@ function compute_profits!(model)
     for firm in allagents(model)
         if firm isa Firm1
             revenue = firm.sales * firm.price
-            wage_bill = sum(model[wid].wage for wid in firm.workers) * getparam(model, :labor_scale)
+            wage_bill = sum(model[wid].wage for wid in firm.workers; init=0.0) * getparam(model, :labor_scale)
             interest = firm.debt * abmproperties(model).interest_rate_prime
             
             firm.profits = revenue - wage_bill - interest - firm.rd_investment
@@ -1171,7 +1171,7 @@ function compute_profits!(model)
             
         elseif firm isa Firm2
             revenue = firm.sales * firm.price
-            wage_bill = sum(model[wid].wage for wid in firm.workers) * getparam(model, :labor_scale)
+            wage_bill = sum(model[wid].wage for wid in firm.workers; init=0.0) * getparam(model, :labor_scale)
             interest = firm.debt * abmproperties(model).interest_rate_prime
             
             firm.profits = revenue - wage_bill - interest
@@ -1189,7 +1189,7 @@ Government operations: spending, taxes, debt
 """
 function government_operations!(model)
     # Count unemployed
-    unemployed = sum(1 for w in allagents(model) if w isa Worker && w.employed == 0)
+    unemployed = sum(1 for w in allagents(model) if w isa Worker && w.employed == 0; init=0.0)
     
     # Unemployment benefits
     abmproperties(model).unemployment_benefit = getparam(model, :unemployment_benefit_ratio) * 
@@ -1302,7 +1302,7 @@ function update_aggregates!(model)
     # Wages
     if !isempty(employed)
         abmproperties(model).wage_average = mean(w.wage for w in employed)
-        abmproperties(model).total_wages = sum(w.wage for w in employed) * getparam(model, :labor_scale)
+        abmproperties(model).total_wages = sum(w.wage for w in employed) * getparam(model, :labor_scale; init=0.0)
     else
         abmproperties(model).wage_average = getparam(model, :initial_wage)
         abmproperties(model).total_wages = 0.0
@@ -1312,17 +1312,17 @@ function update_aggregates!(model)
     firms1 = [f for f in allagents(model) if f isa Firm1]
     firms2 = [f for f in allagents(model) if f isa Firm2]
     
-    abmproperties(model).sector1_production = sum(f.production for f in firms1)
-    abmproperties(model).sector2_production = sum(f.production for f in firms2)
+    abmproperties(model).sector1_production = sum(f.production for f in firms1; init=0.0)
+    abmproperties(model).sector2_production = sum(f.production for f in firms2; init=0.0)
     
-    abmproperties(model).sector1_employment = sum(f.labor_actual for f in firms1)
-    abmproperties(model).sector2_employment = sum(f.labor_actual for f in firms2)
+    abmproperties(model).sector1_employment = sum(f.labor_actual for f in firms1; init=0.0)
+    abmproperties(model).sector2_employment = sum(f.labor_actual for f in firms2; init=0.0)
     
     # GDP (simplified)
     abmproperties(model).gdp_real = abmproperties(model).sector1_production + 
                                 abmproperties(model).sector2_production
-    abmproperties(model).gdp_nominal = sum(f.sales * f.price for f in firms1) +
-                                   sum(f.sales * f.price for f in firms2)
+    abmproperties(model).gdp_nominal = sum(f.sales * f.price for f in firms1; init=0.0) +
+                                   sum(f.sales * f.price for f in firms2; init=0.0)
     
     # Inflation (simplified)
     avg_price = !isempty(firms2) ? mean(f.price for f in firms2) : 1.0
@@ -1416,8 +1416,9 @@ function run_simulation(; n_steps=100, parameters=get_default_parameters())
     adata, mdata = setup_data_collection()
     
     # Run simulation with data collection
-    # In Agents.jl v6.2, pass stepping functions to run! directly if not in model
-    adf, mdf = run!(model, n_steps; adata, mdata, model_step!)
+    # In Agents.jl v6.2, the model_step! is provided separately if not in model
+    # The correct syntax is: run!(model, n_steps; keyword_args...)
+    adf, mdf = run!(model, dummystep, model_step!, n_steps; adata, mdata)
     
     return model, adf, mdf
 end
