@@ -29,14 +29,21 @@ function agent_step!(agent::Firm1, model)
     # Age firm
     agent.age += 1
     
-    # Update tenure of workers
-    agent.w1 = isempty(agent.worker_ids) ? model.wMin : 
-               mean(model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid); init=model.wMin)
+    # Update average wage
+    if isempty(agent.worker_ids)
+        agent.w1 = model.wMin
+    else
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        agent.w1 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
+    end
 end
 
 function agent_step!(agent::Firm2, model)
     # Age firm
     agent.age += 1
+    
+    # Store previous net worth for firing decisions
+    agent.NW2_prev = agent.NW2
     
     # Update demand history
     pushfirst!(agent.D2_history, agent.D2)
@@ -45,8 +52,12 @@ function agent_step!(agent::Firm2, model)
     end
     
     # Update average wage
-    agent.w2 = isempty(agent.worker_ids) ? model.wMin : 
-               mean(model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid); init=model.wMin)
+    if isempty(agent.worker_ids)
+        agent.w2 = model.wMin
+    else
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        agent.w2 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
+    end
 end
 
 function agent_step!(agent::Bank, model)
@@ -124,7 +135,8 @@ function model_step!(model)
     
     # Update average prices
     if !isempty(model.firm1_ids)
-        model.p1avg = mean(model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid); init=1.0)
+        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid)]
+        model.p1avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.PPI = model.p1avg
     end
     
@@ -136,7 +148,8 @@ function model_step!(model)
     end
     
     if !isempty(model.firm2_ids)
-        model.p2avg = mean(model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=1.0)
+        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid)]
+        model.p2avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.CPI = model.p2avg
     end
     

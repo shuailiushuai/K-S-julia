@@ -162,6 +162,7 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     w2::Float64 = 1.0
     competitiveness::Float64 = 0.0
     NW2::Float64 = 0.0
+    NW2_prev::Float64 = 0.0
     Deb2::Float64 = 0.0
     Id::Float64 = 0.0
     EId::Float64 = 0.0

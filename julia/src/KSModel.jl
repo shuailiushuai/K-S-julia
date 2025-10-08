@@ -29,6 +29,8 @@ export Worker, Firm1, Firm2, Bank
 export KSModelSpace, initialize_model, model_step!, agent_step!
 export run_simulation, collect_data
 export ModelParameters, load_baseline_parameters, load_benchmark_parameters
+export create_summary_report, plot_time_series, plot_growth_rates
+export plot_sectoral_dynamics, plot_labor_market, plot_financial_variables
 
 # Include sub-modules
 include("types.jl")

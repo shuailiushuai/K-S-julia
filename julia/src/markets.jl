@@ -260,7 +260,7 @@ function can_fire(firm, model)
         return firm.L2 > firm.L2d
     elseif rule == 3
         # Only if losses (Italian mode)
-        return firm.NW2 < get(model.properties, Symbol("NW2_prev_$(firm.id)"), firm.NW2)
+        return firm.NW2 < firm.NW2_prev
     elseif rule >= 4
         return true  # Can fire (American/Brazilian mode)
     end
@@ -371,7 +371,8 @@ function update_market_shares!(model)
     # Sector 2: replicator dynamics
     if !isempty(model.firm2_ids)
         # Average competitiveness
-        E_avg = mean(model[fid].competitiveness for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
+        valid_comp = [model[fid].competitiveness for fid in model.firm2_ids if Agents.hasid(model, fid)]
+        E_avg = isempty(valid_comp) ? 0.0 : mean(valid_comp)
         
         # Update market shares
         for fid in model.firm2_ids
