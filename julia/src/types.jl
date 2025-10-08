@@ -64,7 +64,8 @@ Represents a capital-good firm (sector 1) in the K+S model.
 - `f1::Float64`: Market share
 - `L1::Int`: Employed workers
 - `L1d::Float64`: Desired labor
-- `L1rd::Float64`: Workers in R&D
+- `L1rd::Float64`: Actual R&D workers hired (lagged for innovation calculation)
+- `L1dRD::Float64`: Desired R&D workers for current period
 - `Q1::Float64`: Production (machines)
 - `Q1e::Float64`: Effective production
 - `D1::Float64`: Demand (orders received)
@@ -89,7 +90,8 @@ Represents a capital-good firm (sector 1) in the K+S model.
     f1::Float64 = 0.0
     L1::Int = 0
     L1d::Float64 = 0.0
-    L1rd::Float64 = 0.0
+    L1rd::Float64 = 0.0  # Actual R&D workers from previous period
+    L1dRD::Float64 = 0.0  # Desired R&D workers for current period
     Q1::Float64 = 0.0
     Q1e::Float64 = 0.0
     D1::Float64 = 0.0
