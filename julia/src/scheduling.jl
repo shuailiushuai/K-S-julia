@@ -400,7 +400,8 @@ function create_entrant_firm1!(model)
         D1 = D1,
         S1 = D1 * p1,
         S1_prev = D1 * p1,
-        L1rd = floor(RD / model.wAvg)
+        L1rd = floor(RD / model.wAvg),
+        L1dRD = floor(RD / model.wAvg)
     )
     
     Agents.add_agent!(firm, model)

@@ -15,7 +15,9 @@ Returns true if innovation succeeded.
 function firm1_innovate!(firm::Firm1, model)
     params = model.params
     
-    # Normalized R&D workers
+    # Normalized R&D workers from PREVIOUS period (lagged)
+    # This matches C model: VL("_L1rd", 1)
+    # firm.L1rd was set at end of previous period's production
     L1rdN = firm.L1rd * params.Ls0 / model.Ls
     
     # Innovation success probability
@@ -56,7 +58,8 @@ Returns true if imitation succeeded.
 function firm1_imitate!(firm::Firm1, model)
     params = model.params
     
-    # Normalized R&D workers
+    # Normalized R&D workers from PREVIOUS period (lagged)
+    # This matches C model: VL("_L1rd", 1)
     L1rdN = firm.L1rd * params.Ls0 / model.Ls
     
     # Imitation success probability
@@ -152,19 +155,21 @@ Adjusts planned production (Q1) to effective production (Q1e) based on actual la
 function firm1_produce!(firm::Firm1, model)
     params = model.params
     
-    # Adjust planned production to effective production based on labor hired
+    # Calculate actual R&D workers hired this period
+    # This will be used for innovation in the NEXT period
     if firm.L1 >= firm.L1d || firm.L1d <= 0
-        # Got all desired workers (or no demand), produce as planned
+        # Got all desired workers (or no demand)
+        L_rd_actual = firm.L1dRD
         firm.Q1e = firm.Q1
     else
-        # Labor constrained - adjust production proportionally
+        # Labor constrained - allocate workers proportionally
         # Account for R&D workers separately
-        L_prod_desired = max(0.0, firm.L1d - firm.L1rd)
+        L_prod_desired = max(0.0, firm.L1d - firm.L1dRD)
         
-        # Calculate actual production workers
+        # Calculate actual R&D workers
         # Allocate R&D workers proportionally to total workers
         if firm.L1d > 0
-            L_rd_actual = min(firm.L1rd, firm.L1 * firm.L1rd / firm.L1d)
+            L_rd_actual = min(firm.L1dRD, firm.L1 * firm.L1dRD / firm.L1d)
         else
             L_rd_actual = 0.0
         end
@@ -177,6 +182,10 @@ function firm1_produce!(firm::Firm1, model)
             firm.Q1e = 0.0
         end
     end
+    
+    # Save actual R&D workers for next period's innovation calculation
+    # This matches C model: VL("_L1rd", 1) in _Atau equation
+    firm.L1rd = L_rd_actual
     
     # Sales are minimum of available output and demand
     firm.S1 = min(firm.Q1e + firm.N1, firm.D1)
@@ -241,9 +250,11 @@ function firm1_compute_labor_demand!(firm::Firm1, model)
         L_rd = min(L_rd, params.L1rdMax * L_prod)
     end
     
+    # Store desired R&D workers (separate from actual L1rd which is lagged)
+    firm.L1dRD = L_rd
+    
     # Total desired labor
     firm.L1d = L_prod + L_rd
-    firm.L1rd = L_rd
 end
 
 """
