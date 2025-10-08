@@ -15,7 +15,7 @@ function labor_market_matching!(model)
     
     # Clear previous applications
     for fid in vcat(model.firm1_ids, model.firm2_ids)
-        if hasid(model, fid)
+        if Agents.hasid(model, fid)
             empty!(model[fid].applications)
         end
     end
@@ -32,7 +32,7 @@ function labor_market_matching!(model)
     
     # Process hiring and firing in order
     for fid in hiring_order
-        if !hasid(model, fid)
+        if !Agents.hasid(model, fid)
             continue
         end
         
@@ -68,7 +68,7 @@ function order_firms_for_hiring(model, firm_ids)
     
     if params.flagHireSeq == 0
         # Random order
-        return shuffle(abmrng(model), firm_ids)
+        return Random.shuffle(Agents.abmrng(model), firm_ids)
         
     elseif params.flagHireSeq == 1
         # Higher wage firms first
@@ -78,17 +78,17 @@ function order_firms_for_hiring(model, firm_ids)
         # Firms without workers first, then random
         without = [fid for fid in firm_ids if (isa(model[fid], Firm1) ? model[fid].L1 : model[fid].L2) == 0]
         with_workers = setdiff(firm_ids, without)
-        return vcat(shuffle(abmrng(model), without), shuffle(abmrng(model), with_workers))
+        return vcat(Random.shuffle(Agents.abmrng(model), without), Random.shuffle(Agents.abmrng(model), with_workers))
         
     elseif params.flagHireSeq == 3
         # Firms without workers first, then by wage
         without = [fid for fid in firm_ids if (isa(model[fid], Firm1) ? model[fid].L1 : model[fid].L2) == 0]
         with_workers = setdiff(firm_ids, without)
         sorted_with = sort(with_workers, by = fid -> -(isa(model[fid], Firm1) ? model[fid].w1 : model[fid].w2))
-        return vcat(shuffle(abmrng(model), without), sorted_with)
+        return vcat(Random.shuffle(Agents.abmrng(model), without), sorted_with)
     end
     
-    return shuffle(abmrng(model), firm_ids)
+    return Random.shuffle(Agents.abmrng(model), firm_ids)
 end
 
 """
@@ -113,7 +113,7 @@ function hire_workers!(firm, model, n_hire)
             break
         end
         
-        if !hasid(model, wid)
+        if !Agents.hasid(model, wid)
             continue
         end
         
@@ -191,7 +191,7 @@ function compute_wage_offer(firm, model)
         # Consider applicants' reservation wages
         min_res_wage = model.wMin
         for wid in firm.applications
-            if hasid(model, wid)
+            if Agents.hasid(model, wid)
                 worker = model[wid]
                 min_res_wage = max(min_res_wage, worker.wRes)
             end
@@ -219,7 +219,7 @@ function order_applications(firm, model, order_rule)
     
     if order_rule == 0
         # Random
-        return shuffle(abmrng(model), firm.applications)
+        return Random.shuffle(Agents.abmrng(model), firm.applications)
     elseif order_rule == 1 || order_rule == 2
         # By wage
         reverse = (order_rule == 1)  # 1=high first, 2=low first
@@ -234,7 +234,7 @@ function order_applications(firm, model, order_rule)
         return sort(firm.applications, by = wid -> model[wid].Te, rev=reverse)
     end
     
-    return shuffle(abmrng(model), firm.applications)
+    return Random.shuffle(Agents.abmrng(model), firm.applications)
 end
 
 """
@@ -291,7 +291,7 @@ function fire_workers!(firm, model, n_fire)
             break
         end
         
-        if !hasid(model, wid)
+        if !Agents.hasid(model, wid)
             continue
         end
         
@@ -329,7 +329,7 @@ function order_workers_for_firing(firm, model, order_rule)
     end
     
     if order_rule == 0
-        return shuffle(abmrng(model), firm.worker_ids)
+        return Random.shuffle(Agents.abmrng(model), firm.worker_ids)
     elseif order_rule == 1 || order_rule == 2
         reverse = (order_rule == 2)  # 2=low wage first (LIFO)
         return sort(firm.worker_ids, by = wid -> model[wid].w, rev=reverse)
@@ -341,7 +341,7 @@ function order_workers_for_firing(firm, model, order_rule)
         return sort(firm.worker_ids, by = wid -> model[wid].Te, rev=reverse)
     end
     
-    return shuffle(abmrng(model), firm.worker_ids)
+    return Random.shuffle(Agents.abmrng(model), firm.worker_ids)
 end
 
 """
@@ -350,7 +350,7 @@ end
 Update aggregate employment statistics.
 """
 function update_employment_statistics!(model)
-    employed = sum(1 for wid in model.worker_ids if model[wid].employed > 0)
+    employed = sum(1 for wid in model.worker_ids if model[wid].employed > 0; init=0)
     model.L = employed
     model.U = model.Ls - employed
     model.Ue = model.U / model.Ls
@@ -371,11 +371,11 @@ function update_market_shares!(model)
     # Sector 2: replicator dynamics
     if !isempty(model.firm2_ids)
         # Average competitiveness
-        E_avg = mean(model[fid].competitiveness for fid in model.firm2_ids if hasid(model, fid))
+        E_avg = mean(model[fid].competitiveness for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
         
         # Update market shares
         for fid in model.firm2_ids
-            if hasid(model, fid)
+            if Agents.hasid(model, fid)
                 firm = model[fid]
                 # Replicator dynamics
                 f2_new = firm.f2 * (1 + params.chi * (firm.competitiveness - E_avg))
@@ -384,10 +384,10 @@ function update_market_shares!(model)
         end
         
         # Renormalize
-        total_f2 = sum(model[fid].f2 for fid in model.firm2_ids if hasid(model, fid))
+        total_f2 = sum(model[fid].f2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
         if total_f2 > 0
             for fid in model.firm2_ids
-                if hasid(model, fid)
+                if Agents.hasid(model, fid)
                     model[fid].f2 /= total_f2
                 end
             end
@@ -396,19 +396,19 @@ function update_market_shares!(model)
     
     # Sector 1: simpler market share dynamics
     if !isempty(model.firm1_ids)
-        total_s1 = sum(model[fid].S1 for fid in model.firm1_ids if hasid(model, fid))
+        total_s1 = sum(model[fid].S1 for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
         if total_s1 > 0
             for fid in model.firm1_ids
-                if hasid(model, fid)
+                if Agents.hasid(model, fid)
                     model[fid].f1 = model[fid].S1 / total_s1
                 end
             end
         else
             # Equal shares
-            n = length([fid for fid in model.firm1_ids if hasid(model, fid)])
+            n = length([fid for fid in model.firm1_ids if Agents.hasid(model, fid)])
             if n > 0
                 for fid in model.firm1_ids
-                    if hasid(model, fid)
+                    if Agents.hasid(model, fid)
                         model[fid].f1 = 1.0 / n
                     end
                 end
