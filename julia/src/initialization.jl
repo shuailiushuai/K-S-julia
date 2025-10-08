@@ -154,7 +154,8 @@ end
 """
     initialize_firm1!(model)
 
-Create initial capital-good firm population.
+Create initial capital-good firm population with proper initial demand.
+Matches C model logic from entry_firm1() in fun_KS_support.h.
 """
 function initialize_firm1!(model)
     params = model.params
@@ -168,6 +169,17 @@ function initialize_firm1!(model)
     # Initial cost and price in sector 1
     c10 = INIWAGE / (Btau0 * params.m1)
     p10 = (1 + params.mu1) * c10
+    
+    # Calculate initial demand for sector 1 (from full employment)
+    c20 = INIWAGE / INIPROD
+    p20 = (1 + params.mu20) * c20
+    K0 = ceil(params.Ls0 * INIWAGE / p20 / params.F20 / params.m2) * params.m2
+    
+    # Initial demand per firm (fair share of total substitution investment)
+    D10 = params.F20 * K0 / params.m2 / params.eta / params.F10
+    
+    # Initial R&D expense
+    RD0 = max(params.nu * D10 * p10, INIWAGE)
     
     for i in 1:params.F10
         # Initial technology
@@ -192,7 +204,10 @@ function initialize_firm1!(model)
             mu1 = params.mu1,
             w1 = INIWAGE,
             c1 = c10,
-            p1 = p10
+            p1 = p10,
+            D1 = D10,  # Initialize with expected demand
+            f1 = 1.0 / params.F10,  # Fair initial market share
+            L1rd = floor(Int, RD0 / INIWAGE)  # Initial R&D workers
         )
         Agents.add_agent!(firm, model)
         push!(model.firm1_ids, firm.id)
@@ -202,31 +217,80 @@ end
 """
     initialize_firm2!(model)
 
-Create initial consumption-good firm population.
+Create initial consumption-good firm population with proper initial demand.
+Matches C model logic from entry_firm2() in fun_KS_support.h.
 """
 function initialize_firm2!(model)
     params = model.params
     
+    # Calculate initial steady-state demand (matching C model)
+    INIPROD = 1.0
+    INIWAGE = 1.0
+    Btau0 = (1 + params.mu1) * INIPROD / (params.m1 * params.m2 * params.b)
+    c10 = INIWAGE / (Btau0 * params.m1)
+    p10 = (1 + params.mu1) * c10
+    c20 = INIWAGE / INIPROD
+    p20 = (1 + params.mu20) * c20
+    trW = params.flagTax > 0 ? params.tr : 0.0
+    
+    # Full employment capital required per firm
+    K0 = ceil(params.Ls0 * INIWAGE / p20 / params.F20 / params.m2) * params.m2
+    
+    # Substitution investment (real)
+    SIr0 = params.F20 * K0 / params.m2 / params.eta
+    
+    # Initial R&D expense
+    RD0 = params.nu * SIr0 * p10
+    
+    # Initial steady-state demand per firm (from full employment equilibrium)
+    D20 = ((SIr0 * c10 + RD0) * (1 - params.phi - trW) + 
+           params.Ls0 * INIWAGE * params.phi) / 
+          (params.mu20 + params.phi + trW) * c20 / params.F20
+    
     for i in 1:params.F20
         # Initial net worth with heterogeneity
         nw_factor = params.Phi1 + rand(Agents.abmrng(model)) * (params.Phi2 - params.Phi1)
-        nw = params.NW20 * nw_factor
+        
+        # Initial capital stock
+        K = K0
+        
+        # Initial productivity (from first capital-good firm)
+        A = INIPROD
+        
+        # Initial unit cost and price
+        c2 = INIWAGE / A
+        p2 = (1 + params.mu20) * c2
+        
+        # Initial free cash (to cover production for one period)
+        NW2f = (1 + params.iota) * D20 * c2
+        NW2f = max(NW2f, nw_factor * params.NW20)
+        
+        # Total initial net worth (capital + free cash)
+        nw = p10 * K / params.m2 + NW2f
         
         # Initial debt
-        deb = nw * params.Deb20ratio / (1 - params.Deb20ratio)
+        deb = nw * params.Deb20ratio
         
-        # Initial capital stock (machines)
-        k = nw / 10.0  # Simple initial capital
+        # Initial inventories
+        N = params.iota * D20
         
         firm = Firm2(
             id = Agents.nextid(model),
-            K = k,
+            K = K,
             NW2 = nw,
+            NW2_prev = nw,
             Deb2 = deb,
             mu2 = params.mu20,
-            w2 = 1.0,
-            p2 = (1 + params.mu20) * 1.0,
-            N2 = k * params.iota  # Initial inventories
+            w2 = INIWAGE,
+            c2 = c2,
+            p2 = p2,
+            N2 = N,
+            D2 = D20,
+            D2e = D20,
+            D2d = D20,
+            D2_history = fill(D20, 4),  # Initialize history with steady-state demand
+            f2 = 1.0 / params.F20,  # Fair initial market share
+            competitiveness = 1.0
         )
         
         # Initialize vintage with initial technology
@@ -234,11 +298,11 @@ function initialize_firm2!(model)
         firm.vintages[vintage_id] = (
             t0 = 0,
             supplier_id = 0,
-            A = 1.0,
+            A = A,
             sVp = 1.0,
             sVavg = 1.0,
-            machines = round(Int, k),
-            price = model.p1avg
+            machines = round(Int, K / params.m2),
+            price = p10
         )
         
         Agents.add_agent!(firm, model)
