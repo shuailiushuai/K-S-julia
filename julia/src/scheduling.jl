@@ -110,8 +110,8 @@ function model_step!(model)
         # Aggregate orders from Sector 2
         firm.D1 = sum(model[f2id].Id * (model[f2id].supplier_id == fid) 
                      for f2id in model.firm2_ids if Agents.hasid(model, f2id); init=0.0)
-        firm1_compute_labor_demand!(firm, model)
-        firm1_plan_production!(firm, model)
+        firm1_plan_production!(firm, model)  # MUST come before labor demand
+        firm1_compute_labor_demand!(firm, model)  # Uses Q1 from plan_production
     end
     
     # PHASE 4: LABOR MARKET
