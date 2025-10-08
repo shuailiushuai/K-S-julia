@@ -21,9 +21,9 @@ function firm1_innovate!(firm::Firm1, model)
     # Innovation success probability
     prob_inn = 1 - exp(-params.zeta1 * params.xi * L1rdN)
     
-    if rand(model.rng) < prob_inn
+    if rand(abmrng(model)) < prob_inn
         # Draw innovation magnitude
-        draw = rand(model.rng, Beta(params.alpha1, params.beta1))
+        draw = rand(abmrng(model), Beta(params.alpha1, params.beta1))
         improvement = params.x1inf + draw * (params.x1sup - params.x1inf)
         
         # New technology
@@ -62,7 +62,7 @@ function firm1_imitate!(firm::Firm1, model)
     # Imitation success probability
     prob_imi = 1 - exp(-params.zeta2 * (1 - params.xi) * L1rdN)
     
-    if rand(model.rng) < prob_imi
+    if rand(abmrng(model)) < prob_imi
         # Calculate distances to all competitors
         w1avg = model.wAvg
         competitors = Int[]
@@ -96,7 +96,7 @@ function firm1_imitate!(firm::Firm1, model)
         if !isempty(competitors)
             # Weighted sampling by inverse distance
             weights = Weights(distances)
-            target_id = sample(model.rng, competitors, weights)
+            target_id = sample(abmrng(model), competitors, weights)
             target = model[target_id]
             
             # Adopt target's technology if better
@@ -216,7 +216,7 @@ function firm1_send_brochures!(firm::Firm1, model)
         non_customers = setdiff(model.firm2_ids, existing)
         if !isempty(non_customers)
             n_sample = min(n_new, length(non_customers))
-            new_customers = sample(model.rng, collect(non_customers), n_sample, replace=false)
+            new_customers = sample(abmrng(model), collect(non_customers), n_sample, replace=false)
             firm.client_ids = unique(vcat(existing, new_customers))
         end
     end
@@ -280,7 +280,7 @@ function firm1_check_exit!(firm::Firm1, model)
         
         # Release workers
         for wid in firm.worker_ids
-            if haskey(model.agents, wid)
+            if hasid(model, wid)
                 worker = model[wid]
                 worker.employed = 0
                 worker.employer = nothing

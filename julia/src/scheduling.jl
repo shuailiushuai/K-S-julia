@@ -31,7 +31,7 @@ function agent_step!(agent::Firm1, model)
     
     # Update tenure of workers
     agent.w1 = isempty(agent.worker_ids) ? model.wMin : 
-               mean(model[wid].w for wid in agent.worker_ids if haskey(model.agents, wid))
+               mean(model[wid].w for wid in agent.worker_ids if hasid(model, wid))
 end
 
 function agent_step!(agent::Firm2, model)
@@ -46,7 +46,7 @@ function agent_step!(agent::Firm2, model)
     
     # Update average wage
     agent.w2 = isempty(agent.worker_ids) ? model.wMin : 
-               mean(model[wid].w for wid in agent.worker_ids if haskey(model.agents, wid))
+               mean(model[wid].w for wid in agent.worker_ids if hasid(model, wid))
 end
 
 function agent_step!(agent::Bank, model)
@@ -76,7 +76,7 @@ function model_step!(model)
     
     # PHASE 2: EXPECTATION & PLANNING (Sector 2)
     for fid in model.firm2_ids
-        if !haskey(model.agents, fid)
+        if !hasid(model, fid)
             continue
         end
         firm = model[fid]
@@ -88,14 +88,14 @@ function model_step!(model)
     
     # PHASE 3: R&D & PRODUCTION PLANNING (Sector 1)
     for fid in model.firm1_ids
-        if !haskey(model.agents, fid)
+        if !hasid(model, fid)
             continue
         end
         firm = model[fid]
         firm1_rd!(firm, model)
         # Aggregate orders from Sector 2
         firm.D1 = sum(model[f2id].Id * (model[f2id].supplier_id == fid) 
-                     for f2id in model.firm2_ids if haskey(model.agents, f2id))
+                     for f2id in model.firm2_ids if hasid(model, f2id))
         firm1_compute_labor_demand!(firm, model)
         firm1_plan_production!(firm, model)
     end
@@ -105,38 +105,38 @@ function model_step!(model)
     
     # PHASE 5: PRODUCTION
     for fid in model.firm1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm1_produce!(model[fid], model)
         end
     end
     for fid in model.firm2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm2_produce!(model[fid], model)
         end
     end
     
     # PHASE 6: PRICING
     for fid in model.firm1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm1_set_price!(model[fid], model)
         end
     end
     
     # Update average prices
     if !isempty(model.firm1_ids)
-        model.p1avg = mean(model[fid].p1 for fid in model.firm1_ids if haskey(model.agents, fid))
+        model.p1avg = mean(model[fid].p1 for fid in model.firm1_ids if hasid(model, fid))
         model.PPI = model.p1avg
     end
     
     for fid in model.firm2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm2_compute_competitiveness!(model[fid], model)
             firm2_set_price!(model[fid], model)
         end
     end
     
     if !isempty(model.firm2_ids)
-        model.p2avg = mean(model[fid].p2 for fid in model.firm2_ids if haskey(model.agents, fid))
+        model.p2avg = mean(model[fid].p2 for fid in model.firm2_ids if hasid(model, fid))
         model.CPI = model.p2avg
     end
     
@@ -155,7 +155,7 @@ function model_step!(model)
     
     # Match demand to supply
     total_supply = sum(model[fid].Q2e + model[fid].N2 
-                      for fid in model.firm2_ids if haskey(model.agents, fid))
+                      for fid in model.firm2_ids if hasid(model, fid))
     
     if total_supply >= model.Cd
         # Supply sufficient
@@ -163,7 +163,7 @@ function model_step!(model)
         model.Sav = 0.0
         # Allocate demand to firms by market share
         for fid in model.firm2_ids
-            if haskey(model.agents, fid)
+            if hasid(model, fid)
                 firm = model[fid]
                 firm.D2 = model.Cd * firm.f2
             end
@@ -174,7 +174,7 @@ function model_step!(model)
         model.Sav = model.Cd - total_supply
         model.SavAcc += model.Sav
         for fid in model.firm2_ids
-            if haskey(model.agents, fid)
+            if hasid(model, fid)
                 firm = model[fid]
                 firm.D2 = total_supply * firm.f2
             end
@@ -182,29 +182,40 @@ function model_step!(model)
     end
     
     # PHASE 8: INVESTMENT
-    model.I = sum(model[fid].Id * model.p1avg 
-                  for fid in model.firm2_ids if haskey(model.agents, fid))
-    
-    # Execute machine purchases
+    # Execute investment with financing constraints
     for fid in model.firm2_ids
-        if !haskey(model.agents, fid)
+        if hasid(model, fid)
+            firm2_execute_investment!(model[fid], model)
+        end
+    end
+    
+    model.I = sum((model[fid].EI + model[fid].SI) 
+                  for fid in model.firm2_ids if hasid(model, fid))
+    
+    # Add new vintages for successful investments
+    for fid in model.firm2_ids
+        if !hasid(model, fid)
             continue
         end
         firm = model[fid]
-        if firm.Id > 0 && firm.supplier_id > 0
+        total_investment = firm.EI + firm.SI
+        if total_investment > 0 && firm.supplier_id > 0 && hasid(model, firm.supplier_id)
             # Add new vintage
             supplier = model[firm.supplier_id]
-            vintage_id = model.t * 10000 + firm.supplier_id
-            firm.vintages[vintage_id] = (
-                t0 = model.t,
-                supplier_id = firm.supplier_id,
-                A = supplier.A,
-                sVp = 1.0,
-                sVavg = 1.0,
-                machines = Int(round(firm.Id)),
-                price = supplier.p1
-            )
-            firm.K += firm.Id
+            n_machines = round(Int, total_investment / params.m2)
+            if n_machines > 0
+                vintage_id = model.t * 10000 + firm.supplier_id
+                firm.vintages[vintage_id] = (
+                    t0 = model.t,
+                    supplier_id = firm.supplier_id,
+                    A = supplier.A,
+                    sVp = 1.0,
+                    sVavg = 1.0,
+                    machines = n_machines,
+                    price = supplier.p1
+                )
+                firm.K += total_investment
+            end
         end
     end
     
@@ -220,13 +231,13 @@ function model_step!(model)
     end
     
     for fid in model.firm1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm1_update_finances!(model[fid], model)
         end
     end
     
     for fid in model.firm2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm2_update_finances!(model[fid], model)
         end
     end
@@ -249,7 +260,7 @@ function model_step!(model)
     update_market_shares!(model)
     
     for fid in model.firm1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm1_send_brochures!(model[fid], model)
         end
     end
@@ -292,14 +303,14 @@ function execute_entry_exit!(model)
     
     # Exit firms marked for exit
     for fid in model.firm1_ids
-        if haskey(model.agents, fid) && model[fid].exit_flag
+        if hasid(model, fid) && model[fid].exit_flag
             remove_agent!(model[fid], model)
             filter!(id -> id != fid, model.firm1_ids)
         end
     end
     
     for fid in model.firm2_ids
-        if haskey(model.agents, fid) && model[fid].exit_flag
+        if hasid(model, fid) && model[fid].exit_flag
             remove_agent!(model[fid], model)
             filter!(id -> id != fid, model.firm2_ids)
         end
@@ -307,13 +318,13 @@ function execute_entry_exit!(model)
     
     # Check remaining firms for exit
     for fid in model.firm1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm1_check_exit!(model[fid], model)
         end
     end
     
     for fid in model.firm2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm2_check_exit!(model[fid], model)
         end
     end
@@ -322,7 +333,7 @@ function execute_entry_exit!(model)
     # Sector 1
     if length(model.firm1_ids) < params.F1max
         entry_prob = params.omicron * 0.1  # Simplified
-        if rand(model.rng) < entry_prob
+        if rand(abmrng(model)) < entry_prob
             create_entrant_firm1!(model)
         end
     end
@@ -330,7 +341,7 @@ function execute_entry_exit!(model)
     # Sector 2
     if length(model.firm2_ids) < params.F2max
         entry_prob = params.omicron * 0.1  # Simplified
-        if rand(model.rng) < entry_prob
+        if rand(abmrng(model)) < entry_prob
             create_entrant_firm2!(model)
         end
     end
@@ -345,8 +356,8 @@ function create_entrant_firm1!(model)
     params = model.params
     
     # Technology close to frontier
-    A = model.A1 * (1 + params.x5 * rand(model.rng))
-    nw_factor = params.Phi3 + rand(model.rng) * (params.Phi4 - params.Phi3)
+    A = model.A1 * (1 + params.x5 * rand(abmrng(model)))
+    nw_factor = params.Phi3 + rand(abmrng(model)) * (params.Phi4 - params.Phi3)
     nw = params.NW10 * nw_factor
     
     firm = Firm1(
@@ -365,7 +376,7 @@ function create_entrant_firm1!(model)
     push!(model.firm1_ids, firm.id)
     
     # Assign to random bank
-    firm.bank_id = rand(model.rng, model.bank_ids)
+    firm.bank_id = rand(abmrng(model), model.bank_ids)
     push!(model[firm.bank_id].client1_ids, firm.id)
 end
 
@@ -377,7 +388,7 @@ Create a new entrant firm in sector 2.
 function create_entrant_firm2!(model)
     params = model.params
     
-    nw_factor = params.Phi1 + rand(model.rng) * (params.Phi2 - params.Phi1)
+    nw_factor = params.Phi1 + rand(abmrng(model)) * (params.Phi2 - params.Phi1)
     nw = params.NW20 * nw_factor
     k = nw / 10.0
     
@@ -388,7 +399,7 @@ function create_entrant_firm2!(model)
         mu2 = params.mu20,
         w2 = model.wAvg,
         p2 = (1 + params.mu20) * model.wAvg,
-        supplier_id = rand(model.rng, model.firm1_ids),
+        supplier_id = rand(abmrng(model), model.firm1_ids),
         D2_history = fill(0.0, 4)
     )
     
@@ -400,7 +411,7 @@ function create_entrant_firm2!(model)
         A = model.A1,
         sVp = 1.0,
         sVavg = 1.0,
-        machines = Int(k),
+        machines = round(Int, k),
         price = model.p1avg
     )
     
@@ -408,7 +419,7 @@ function create_entrant_firm2!(model)
     push!(model.firm2_ids, firm.id)
     
     # Assign to random bank
-    firm.bank_id = rand(model.rng, model.bank_ids)
+    firm.bank_id = rand(abmrng(model), model.bank_ids)
     push!(model[firm.bank_id].client2_ids, firm.id)
 end
 
