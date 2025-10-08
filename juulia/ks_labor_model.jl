@@ -356,224 +356,7 @@ function get_default_parameters()
 end
 
 #=============================================================================
-INITIALIZATION FUNCTIONS
-=============================================================================#
-
-"""
-Initialize the K+S labor market model
-"""
-function initialize_ks_model(; parameters=get_default_parameters())
-    # Extract key parameters
-    n_workers = parameters[:n_workers]
-    n_firms1 = parameters[:n_firms1]
-    n_firms2 = parameters[:n_firms2]
-    n_banks = parameters[:n_banks]
-    seed = parameters[:seed]
-    
-    # Set random seed
-    rng = Random.MersenneTwister(seed)
-    
-    # Create model properties
-    properties = KSModelProperties(
-        0,  # tick
-        0.0, 0.0, 0.0, 0.0,  # GDP, unemployment, inflation
-        0.0, 0.0, 0.0,  # employment, wages
-        0.0, 0.0, 0.0, 0.0,  # sector production/employment
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  # government
-        0.04, 0.04, 0.02,  # central bank
-        0.0, 0.0,  # financial
-        0.0, 0.0, 0.0,  # labor market
-        0.0, 0.0,  # savings
-        0, 0, 0, 0,  # entry/exit
-        parameters  # Store parameters in properties
-    )
-    
-    # Create the model with NoSpaceAgent (abstract labor market)
-    # Note: In Agents.jl v6.2, stepping function should be set during creation
-    model = StandardABM(
-        Union{Worker, Firm1, Firm2, Bank}, nothing;  # Agent type and space
-        properties=properties,
-        rng=rng,
-        scheduler=Schedulers.Randomly()
-    )
-    
-    # Set the model stepping function manually for compatibility
-    # In v6.2, this needs to be done through the model fields
-    # The warning says to pass agent_step! or model_step! as keyword arguments
-    # but the actual way depends on the version
-    # For now, we'll pass it to run! directly
-    
-    # Initialize banks first
-    initialize_banks!(model, n_banks, parameters)
-    
-    # Initialize firms
-    initialize_firms1!(model, n_firms1, parameters)
-    initialize_firms2!(model, n_firms2, parameters)
-    
-    # Initialize workers
-    initialize_workers!(model, n_workers, parameters)
-    
-    # Set initial government values
-    abmproperties(model).min_wage = parameters[:min_wage_floor]
-    abmproperties(model).interest_rate_prime = parameters[:interest_rate_target]
-    
-    return model
-end
-
-# Helper function to access parameters from model
-@inline getparam(model, key) = abmproperties(model).parameters[key]
-
-"""
-Initialize banks in the model
-"""
-function initialize_banks!(model, n_banks, params)
-    for i in 1:n_banks
-        bank = Bank(
-            Agents.nextid(model),
-            0.0,  # loans
-            0.0,  # reserves
-            0.0,  # bonds
-            0.0,  # deposits
-            1000.0,  # initial equity
-            0.0,  # profits
-            false,  # not failed
-            Int[],  # clients_sector1
-            Int[],  # clients_sector2
-            params[:interest_rate_target] + params[:bank_markup_loans],
-            params[:interest_rate_target] - params[:bank_markdown_deposits]
-        )
-        add_agent!(bank, model)
-    end
-end
-
-"""
-Initialize capital-good firms (Sector 1)
-"""
-function initialize_firms1!(model, n_firms, params)
-    banks = collect(allagents(model))
-    
-    for i in 1:n_firms
-        # Assign to random bank
-        bank_id = rand(abmrng(model), banks).id
-        
-        # Initial values
-        initial_nw = 100.0
-        initial_debt = initial_nw * params[:initial_debt_ratio_sector1]
-        
-        firm = Firm1(
-            Agents.nextid(model),
-            1,  # sector
-            0.0,  # production
-            0.0,  # production_planned
-            params[:sector1_labor_productivity],  # productivity
-            1.0,  # tech_level
-            0.0,  # rd_investment
-            0.0,  # labor_demand
-            0.0,  # labor_actual
-            Int[],  # workers
-            0.0,  # orders
-            0.0,  # sales
-            1.0 / n_firms,  # market_share
-            params[:initial_wage] / params[:sector1_labor_productivity] * (1 + params[:sector1_markup]),  # price
-            initial_nw,  # net_worth
-            initial_debt,  # debt
-            initial_nw,  # liquidity
-            0.0,  # profits
-            bank_id,
-            initial_nw * params[:credit_multiplier]  # credit_limit
-        )
-        add_agent!(firm, model)
-        
-        # Register with bank
-        bank = model[bank_id]
-        push!(bank.clients_sector1, firm.id)
-    end
-end
-
-"""
-Initialize consumption-good firms (Sector 2)
-"""
-function initialize_firms2!(model, n_firms, params)
-    banks = [a for a in allagents(model) if a isa Bank]
-    
-    for i in 1:n_firms
-        # Assign to random bank
-        bank_id = rand(abmrng(model), banks).id
-        
-        # Initial values
-        initial_nw = 200.0
-        initial_debt = initial_nw * params[:initial_debt_ratio_sector2]
-        initial_capital = 100.0
-        
-        firm = Firm2(
-            Agents.nextid(model),
-            2,  # sector
-            false,  # post_change
-            0.0,  # production
-            0.0,  # production_planned
-            0.0,  # demand_expected
-            initial_capital,  # capital_stock
-            Dict(1 => initial_capital),  # capital_vintage (vintage 1)
-            params[:sector1_labor_productivity],  # productivity
-            0.0,  # labor_demand
-            0.0,  # labor_actual
-            Int[],  # workers
-            params[:initial_wage],  # wage_offer
-            0.0,  # sales
-            1.0 / n_firms,  # market_share
-            params[:initial_wage] / params[:sector1_labor_productivity] * (1 + params[:sector2_markup_initial]),  # price
-            params[:sector2_markup_initial],  # markup
-            0.5,  # competitiveness
-            0.0,  # inventories
-            0.0,  # investment_desired
-            0.0,  # investment_actual
-            Dict{Int,Float64}(),  # machine_orders
-            initial_nw,  # net_worth
-            initial_debt,  # debt
-            initial_nw,  # liquidity
-            0.0,  # profits
-            bank_id,
-            initial_nw * params[:credit_multiplier]  # credit_limit
-        )
-        add_agent!(firm, model)
-        
-        # Register with bank
-        bank = model[bank_id]
-        push!(bank.clients_sector2, firm.id)
-    end
-end
-
-"""
-Initialize workers in the model
-"""
-function initialize_workers!(model, n_workers, params)
-    for i in 1:n_workers
-        # Random initial age
-        initial_age = params[:retirement_age] > 0 ? rand(abmrng(model), 1:params[:retirement_age]) : rand(abmrng(model), 1:30)
-        
-        worker = Worker(
-            Agents.nextid(model),
-            0,  # unemployed initially
-            0,  # no employer
-            initial_age,
-            0,  # tenure
-            params[:initial_skill],  # skill_vintage
-            params[:initial_skill],  # skill_tenure
-            params[:initial_skill],  # skill_compound
-            params[:initial_wage],  # wage
-            params[:min_wage_floor],  # wage_reservation
-            fill(params[:initial_wage], 8),  # wage_history
-            0,  # applications
-            false,  # not discouraged
-            1.0,  # search_prob
-            params[:contract_term]  # contract_term
-        )
-        add_agent!(worker, model)
-    end
-end
-
-#=============================================================================
-STEPPING FUNCTIONS
+STEPPING FUNCTIONS (Defined before initialization for forward reference)
 =============================================================================#
 
 """
@@ -646,6 +429,254 @@ function model_step!(model)
     # Phase 10: Update aggregates
     update_aggregates!(model)
 end
+
+#=============================================================================
+INITIALIZATION FUNCTIONS
+=============================================================================#
+
+"""
+Initialize the K+S labor market model
+"""
+function initialize_ks_model(; parameters=get_default_parameters())
+    # Extract key parameters
+    n_workers = parameters[:n_workers]
+    n_firms1 = parameters[:n_firms1]
+    n_firms2 = parameters[:n_firms2]
+    n_banks = parameters[:n_banks]
+    seed = parameters[:seed]
+    
+    # Set random seed
+    rng = Random.MersenneTwister(seed)
+    
+    # Create model properties
+    properties = KSModelProperties(
+        0,  # tick
+        0.0, 0.0, 0.0, 0.0,  # GDP, unemployment, inflation
+        0.0, 0.0, 0.0,  # employment, wages
+        0.0, 0.0, 0.0, 0.0,  # sector production/employment
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  # government
+        0.04, 0.04, 0.02,  # central bank
+        0.0, 0.0,  # financial
+        0.0, 0.0, 0.0,  # labor market
+        0.0, 0.0,  # savings
+        0, 0, 0, 0,  # entry/exit
+        parameters  # Store parameters in properties
+    )
+    
+    # Create the model with NoSpaceAgent (abstract labor market)
+    # In Agents.jl v6.2, model_step! must be provided as keyword argument
+    model = StandardABM(
+        Union{Worker, Firm1, Firm2, Bank}, nothing;  # Agent type and space
+        properties=properties,
+        rng=rng,
+        scheduler=Schedulers.Randomly(),
+        model_step! = model_step!,  # Required in Agents.jl v6.2
+        warn = false  # Suppress union type warning for mixed agents
+    )
+    
+    # Initialize banks first
+    initialize_banks!(model, n_banks, parameters)
+    
+    # Initialize firms
+    initialize_firms1!(model, n_firms1, parameters)
+    initialize_firms2!(model, n_firms2, parameters)
+    
+    # Initialize workers
+    initialize_workers!(model, n_workers, parameters)
+    
+    # Set initial government values
+    abmproperties(model).min_wage = parameters[:min_wage_floor]
+    abmproperties(model).interest_rate_prime = parameters[:interest_rate_target]
+    
+    return model
+end
+
+# Helper function to access parameters from model
+@inline getparam(model, key) = abmproperties(model).parameters[key]
+
+"""
+Initialize banks in the model
+"""
+function initialize_banks!(model, n_banks, params)
+    for i in 1:n_banks
+        bank = Bank(
+            Agents.nextid(model),
+            0.0,  # loans
+            0.0,  # reserves
+            0.0,  # bonds
+            0.0,  # deposits
+            1000.0,  # initial equity
+            0.0,  # profits
+            false,  # not failed
+            Int[],  # clients_sector1
+            Int[],  # clients_sector2
+            params[:interest_rate_target] + params[:bank_markup_loans],
+            params[:interest_rate_target] - params[:bank_markdown_deposits]
+        )
+        add_agent!(bank, model)
+    end
+end
+
+"""
+Initialize capital-good firms (Sector 1)
+"""
+function initialize_firms1!(model, n_firms, params)
+    banks = [a for a in allagents(model) if a isa Bank]
+    
+    if isempty(banks)
+        @warn "No banks available for Firm1 initialization"
+        return
+    end
+    
+    # Calculate initial equilibrium (from C code logic)
+    Ls0 = params[:n_workers] * params[:labor_scale]
+    initial_wage = params[:initial_wage]
+    initial_prod = params[:sector1_labor_productivity]
+    
+    # Initial demand for machines (simplified)
+    initial_demand_per_firm = Ls0 * initial_wage * 0.1 / n_firms
+    initial_production = initial_demand_per_firm
+    initial_labor = initial_production / initial_prod
+    
+    for i in 1:n_firms
+        # Assign to random bank
+        bank_id = rand(abmrng(model), banks).id
+        
+        # Initial values
+        initial_nw = 100.0
+        initial_debt = initial_nw * params[:initial_debt_ratio_sector1]
+        
+        firm = Firm1(
+            Agents.nextid(model),
+            1,  # sector
+            initial_production,  # production
+            initial_production,  # production_planned
+            initial_prod,  # productivity
+            1.0,  # tech_level
+            initial_production * initial_wage / initial_prod * params[:sector1_rd_share],  # rd_investment
+            initial_labor,  # labor_demand
+            0.0,  # labor_actual (will be filled by hiring)
+            Int[],  # workers
+            initial_demand_per_firm,  # orders
+            initial_production * 0.9,  # sales
+            1.0 / n_firms,  # market_share
+            initial_wage / initial_prod * (1 + params[:sector1_markup]),  # price
+            initial_nw,  # net_worth
+            initial_debt,  # debt
+            initial_nw,  # liquidity
+            0.0,  # profits
+            bank_id,
+            initial_nw * params[:credit_multiplier]  # credit_limit
+        )
+        add_agent!(firm, model)
+        
+        # Register with bank
+        bank = model[bank_id]
+        push!(bank.clients_sector1, firm.id)
+    end
+end
+
+"""
+Initialize consumption-good firms (Sector 2)
+"""
+function initialize_firms2!(model, n_firms, params)
+    banks = [a for a in allagents(model) if a isa Bank]
+    
+    if isempty(banks)
+        @warn "No banks available for Firm2 initialization"
+        return
+    end
+    
+    # Calculate initial equilibrium values (from C code)
+    # This sets up a coherent initial state with production and employment
+    Ls0 = params[:n_workers] * params[:labor_scale]
+    phi = params[:unemployment_benefit_ratio]
+    trW = params[:tax_rate]
+    mu20 = params[:sector2_markup_initial]
+    
+    # Initial aggregate values  
+    initial_wage = params[:initial_wage]
+    initial_prod = params[:sector1_labor_productivity]  # INIPROD
+    
+    # Firm-level initial values (simplified)
+    initial_nw = 200.0
+    initial_debt = initial_nw * params[:initial_debt_ratio_sector2]
+    initial_capital = 50.0 * n_firms  # Total capital to support economy
+    initial_demand = Ls0 * initial_wage * 0.8 / n_firms  # Initial demand per firm
+    initial_production = initial_demand / (1 + params[:sector2_markup_initial])
+    initial_labor = initial_production / initial_prod
+    
+    for i in 1:n_firms
+        # Assign to random bank
+        bank_id = rand(abmrng(model), banks).id
+        
+        firm = Firm2(
+            Agents.nextid(model),
+            2,  # sector
+            false,  # post_change
+            initial_production,  # production
+            initial_production,  # production_planned
+            initial_demand,  # demand_expected
+            initial_capital / n_firms,  # capital_stock
+            Dict(1 => initial_capital / n_firms),  # capital_vintage (vintage 1)
+            initial_prod,  # productivity
+            initial_labor,  # labor_demand
+            0.0,  # labor_actual (will be filled by hiring)
+            Int[],  # workers
+            initial_wage,  # wage_offer
+            initial_production * 0.9,  # sales (slightly less than production)
+            1.0 / n_firms,  # market_share
+            initial_wage / initial_prod * (1 + params[:sector2_markup_initial]),  # price
+            params[:sector2_markup_initial],  # markup
+            0.5,  # competitiveness
+            initial_production * 0.1,  # inventories
+            0.0,  # investment_desired
+            0.0,  # investment_actual
+            Dict{Int,Float64}(),  # machine_orders
+            initial_nw,  # net_worth
+            initial_debt,  # debt
+            initial_nw,  # liquidity
+            0.0,  # profits
+            bank_id,
+            initial_nw * params[:credit_multiplier]  # credit_limit
+        )
+        add_agent!(firm, model)
+        
+        # Register with bank
+        bank = model[bank_id]
+        push!(bank.clients_sector2, firm.id)
+    end
+end
+
+"""
+Initialize workers in the model
+"""
+function initialize_workers!(model, n_workers, params)
+    for i in 1:n_workers
+        # Random initial age
+        initial_age = params[:retirement_age] > 0 ? rand(abmrng(model), 1:params[:retirement_age]) : rand(abmrng(model), 1:30)
+        
+        worker = Worker(
+            Agents.nextid(model),
+            0,  # unemployed initially
+            0,  # no employer
+            initial_age,
+            0,  # tenure
+            params[:initial_skill],  # skill_vintage
+            params[:initial_skill],  # skill_tenure
+            params[:initial_skill],  # skill_compound
+            params[:initial_wage],  # wage
+            params[:min_wage_floor],  # wage_reservation
+            fill(params[:initial_wage], 8),  # wage_history
+            0,  # applications
+            false,  # not discouraged
+            1.0,  # search_prob
+            params[:contract_term]  # contract_term
+        )
+        add_agent!(worker, model)
+    end
+end
+
 
 #=============================================================================
 PHASE 1: INTEREST RATES
@@ -786,7 +817,12 @@ function should_search(worker::Worker, model)
         if worker.employed == 0
             return true
         end
-        return worker.wage < abmproperties(model).wage_average
+        # Only check avg wage if we have meaningful data
+        avg_wage = abmproperties(model).wage_average
+        if avg_wage > 0 && worker.wage > 0
+            return worker.wage < avg_wage
+        end
+        return worker.employed == 0  # Default to unemployed search if no wage data
     end
     
     return true
@@ -1256,13 +1292,7 @@ function entry_exit!(model)
     # Sector 1 entry
     if n_firms1 < getparam(model, :sector1_max_firms)
         if rand(abmrng(model)) < 0.02  # 2% entry probability
-            initialize_firms1!(model, 1, Dict(
-                :initial_debt_ratio_sector1 => getparam(model, :initial_debt_ratio_sector1),
-                :sector1_labor_productivity => getparam(model, :sector1_labor_productivity),
-                :initial_wage => getparam(model, :initial_wage),
-                :sector1_markup => getparam(model, :sector1_markup),
-                :credit_multiplier => getparam(model, :credit_multiplier)
-            ))
+            initialize_firms1!(model, 1, abmproperties(model).parameters)
             abmproperties(model).firm1_entries += 1
         end
     end
@@ -1270,13 +1300,7 @@ function entry_exit!(model)
     # Sector 2 entry
     if n_firms2 < getparam(model, :sector2_max_firms)
         if rand(abmrng(model)) < 0.02
-            initialize_firms2!(model, 1, Dict(
-                :initial_debt_ratio_sector2 => getparam(model, :initial_debt_ratio_sector2),
-                :sector1_labor_productivity => getparam(model, :sector1_labor_productivity),
-                :initial_wage => getparam(model, :initial_wage),
-                :sector2_markup_initial => getparam(model, :sector2_markup_initial),
-                :credit_multiplier => getparam(model, :credit_multiplier)
-            ))
+            initialize_firms2!(model, 1, abmproperties(model).parameters)
             abmproperties(model).firm2_entries += 1
         end
     end
@@ -1302,7 +1326,7 @@ function update_aggregates!(model)
     # Wages
     if !isempty(employed)
         abmproperties(model).wage_average = mean(w.wage for w in employed)
-        abmproperties(model).total_wages = sum(w.wage for w in employed) * getparam(model, :labor_scale; init=0.0)
+        abmproperties(model).total_wages = sum(w.wage for w in employed; init=0.0) * getparam(model, :labor_scale)
     else
         abmproperties(model).wage_average = getparam(model, :initial_wage)
         abmproperties(model).total_wages = 0.0
@@ -1416,9 +1440,9 @@ function run_simulation(; n_steps=100, parameters=get_default_parameters())
     adata, mdata = setup_data_collection()
     
     # Run simulation with data collection
-    # In Agents.jl v6.2, the model_step! is provided separately if not in model
-    # The correct syntax is: run!(model, n_steps; keyword_args...)
-    adf, mdf = run!(model, dummystep, model_step!, n_steps; adata, mdata)
+    # In Agents.jl v6.2, model_step! is stored in the model, so we don't pass it here
+    # Since we only have model_step! (no agent_step!), we can pass dummystep or nothing
+    adf, mdf = run!(model, n_steps; adata, mdata)
     
     return model, adf, mdf
 end
