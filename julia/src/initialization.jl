@@ -159,10 +159,20 @@ Create initial capital-good firm population.
 function initialize_firm1!(model)
     params = model.params
     
+    # Calculate initial productivity in sector 1 matching C model
+    # Btau0 = (1 + mu1) * INIPROD / (m1 * m2 * b)
+    INIPROD = 1.0  # Initial notional machine productivity
+    INIWAGE = 1.0  # Initial notional wage
+    Btau0 = (1 + params.mu1) * INIPROD / (params.m1 * params.m2 * params.b)
+    
+    # Initial cost and price in sector 1
+    c10 = INIWAGE / (Btau0 * params.m1)
+    p10 = (1 + params.mu1) * c10
+    
     for i in 1:params.F10
         # Initial technology
-        A = 1.0  # INIPROD from C model
-        B = 1.0
+        A = INIPROD
+        B = Btau0
         
         # Initial net worth with heterogeneity
         nw_factor = params.Phi3 + rand(abmrng(model)) * (params.Phi4 - params.Phi3)
@@ -180,8 +190,9 @@ function initialize_firm1!(model)
             NW1 = nw,
             Deb1 = deb,
             mu1 = params.mu1,
-            w1 = 1.0,
-            p1 = (1 + params.mu1) * 1.0 / B / params.m1
+            w1 = INIWAGE,
+            c1 = c10,
+            p1 = p10
         )
         add_agent!(firm, model)
         push!(model.firm1_ids, firm.id)

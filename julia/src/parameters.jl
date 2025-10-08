@@ -73,13 +73,13 @@ Organized by category matching the C implementation.
     alpha1::Float64 = 3.0  # Beta distribution alpha for innovation
     beta1::Float64 = 3.0  # Beta distribution beta for innovation
     alpha2::Float64 = 3.0  # Beta distribution alpha for imitation
-    beta2::Float64 = 3.0  # Beta distribution beta for imitation
+    beta2::Float64 = 4.0  # Beta distribution beta for imitation
     d1::Float64 = 0.5  # Dividend rate in capital-good sector
     gamma::Float64 = 0.5  # New customer share for firm in sector 1
-    m1::Float64 = 1.0  # Worker output in capital-good units per period
-    mu1::Float64 = 0.15  # Mark-up of firms in the capital-good sector
+    m1::Float64 = 0.1  # Worker output in capital-good units per period
+    mu1::Float64 = 0.08  # Mark-up of firms in the capital-good sector
     n1::Int = 4  # Number of periods for evaluating market share in sector 1
-    nu::Float64 = 0.05  # Share of revenue applied in R&D
+    nu::Float64 = 0.04  # Share of revenue applied in R&D
     x1inf::Float64 = -0.15  # Lower support for new machine productivity change
     x1sup::Float64 = 0.15  # Upper support for new machine productivity change
     x5::Float64 = 0.5  # Upper share limit for productivity improvement of entrant
@@ -97,7 +97,7 @@ Organized by category matching the C implementation.
     Phi2::Float64 = 0.9  # Upper support for consumption-good entrant net worth
     b::Float64 = 3.0  # Number of pay-back periods before machine scrapping (pre-change)
     bChg::Float64 = 3.0  # Pay-back periods (post-change)
-    chi::Float64 = 0.5  # Replicator dynamics selectivity coefficient
+    chi::Float64 = 1.0  # Replicator dynamics selectivity coefficient
     d2::Float64 = 0.5  # Dividend rate in consumption-good sector
     e0::Float64 = 0.5  # Weight of potential demand on expectations (pre-change)
     e0Chg::Float64 = 0.5  # Weight of potential demand (post-change)
@@ -116,22 +116,22 @@ Organized by category matching the C implementation.
     f2minPosChg::Float64 = 0.1  # Minimum probability of new post-change-type firm
     f2trdChg::Float64 = 0.0  # Minimum market share of post-change-type firms
     iota::Float64 = 0.1  # Share of inventories on planned output
-    kappaMax::Float64 = 0.1  # Capital max threshold share growth
-    kappaMin::Float64 = -0.1  # Capital min threshold share growth
-    m2::Float64 = 1.0  # Machine output in consumption-good units per period
-    mu20::Float64 = 0.25  # Initial mark-up in consumption-good sector (pre-change)
-    mu20Chg::Float64 = 0.25  # Initial mark-up (post-change)
+    kappaMax::Float64 = 0.5  # Capital max threshold share growth
+    kappaMin::Float64 = 0.0  # Capital min threshold share growth
+    m2::Float64 = 40.0  # Machine output in consumption-good units per period
+    mu20::Float64 = 0.2  # Initial mark-up in consumption-good sector (pre-change)
+    mu20Chg::Float64 = 0.2  # Initial mark-up (post-change)
     n2::Int = 4  # Number of periods for evaluating market share in sector 2
     omega1::Float64 = 1.0  # Competitiveness weight of price
     omega2::Float64 = 1.0  # Competitiveness weight of unfilled demand
     omega3::Float64 = 0.0  # Competitiveness weight of quality
-    u::Float64 = 0.8  # Planned utilization of machinery
-    upsilon::Float64 = 0.1  # Sensitivity of mark-up adjustment
+    u::Float64 = 0.75  # Planned utilization of machinery
+    upsilon::Float64 = 0.04  # Sensitivity of mark-up adjustment
     
     # === LABOR SUPPLY PARAMETERS (object Labor) ===
     Gamma::Float64 = 0.5  # Share of unemployed covered by government training
     GammaCost::Float64 = 0.1  # Share of average wage cost per worker for training
-    Ls0::Int = 10000  # Initial number of workers in labor market
+    Ls0::Int = 250000  # Initial number of workers in labor market
     Lscale::Int = 1  # Scale of one Worker object (workers per object)
     Tc::Int = 4  # Work contract term (periods)
     Tp::Int = 2  # Number of periods after firing is not allowed
