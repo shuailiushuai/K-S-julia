@@ -182,29 +182,40 @@ function model_step!(model)
     end
     
     # PHASE 8: INVESTMENT
-    model.I = sum(model[fid].Id * model.p1avg 
+    # Execute investment with financing constraints
+    for fid in model.firm2_ids
+        if hasid(model, fid)
+            firm2_execute_investment!(model[fid], model)
+        end
+    end
+    
+    model.I = sum((model[fid].EI + model[fid].SI) 
                   for fid in model.firm2_ids if hasid(model, fid))
     
-    # Execute machine purchases
+    # Add new vintages for successful investments
     for fid in model.firm2_ids
         if !hasid(model, fid)
             continue
         end
         firm = model[fid]
-        if firm.Id > 0 && firm.supplier_id > 0
+        total_investment = firm.EI + firm.SI
+        if total_investment > 0 && firm.supplier_id > 0 && hasid(model, firm.supplier_id)
             # Add new vintage
             supplier = model[firm.supplier_id]
-            vintage_id = model.t * 10000 + firm.supplier_id
-            firm.vintages[vintage_id] = (
-                t0 = model.t,
-                supplier_id = firm.supplier_id,
-                A = supplier.A,
-                sVp = 1.0,
-                sVavg = 1.0,
-                machines = Int(round(firm.Id)),
-                price = supplier.p1
-            )
-            firm.K += firm.Id
+            n_machines = round(Int, total_investment / params.m2)
+            if n_machines > 0
+                vintage_id = model.t * 10000 + firm.supplier_id
+                firm.vintages[vintage_id] = (
+                    t0 = model.t,
+                    supplier_id = firm.supplier_id,
+                    A = supplier.A,
+                    sVp = 1.0,
+                    sVavg = 1.0,
+                    machines = n_machines,
+                    price = supplier.p1
+                )
+                firm.K += total_investment
+            end
         end
     end
     

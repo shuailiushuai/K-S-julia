@@ -118,26 +118,59 @@ end
     firm2_decide_investment!(firm::Firm2, model)
 
 Decide on investment (expansion and replacement).
+Implements _EId, _SId equations from C model.
 """
 function firm2_decide_investment!(firm::Firm2, model)
     params = model.params
     
-    # Expansion investment
+    # Calculate desired capital (_Kd equation)
+    # Desired capacity with slack and utilization, based on expectations/inventories
     A_avg = firm2_average_productivity(firm)
-    K_needed = firm.D2e * (1 + params.iota) / (params.u * A_avg)
-    expansion = max(0.0, K_needed - firm.K)
+    firm.Kd = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
     
-    # Replacement investment (payback rule)
-    replacement = 0.0
-    current_cost = model.wAvg / A_avg
+    # === EXPANSION INVESTMENT (_EId equation) ===
+    K_current = firm.K
+    m2 = params.m2
+    
+    if K_current < m2
+        # No capital yet, invest to reach desired
+        firm.EId = firm.Kd
+    else
+        kappaMin = params.kappaMin
+        
+        # Min rounded capital
+        K_min = round((1 + kappaMin) * K_current / m2) * m2
+        
+        if firm.Kd > K_min
+            if kappaMin > 0
+                firm.EId = K_min - K_current
+            else
+                kappaMax = params.kappaMax
+                K_max = round((1 + kappaMax) * K_current / m2) * m2
+                
+                if kappaMax > 0 && firm.Kd > K_max
+                    firm.EId = K_max - K_current
+                else
+                    firm.EId = floor((firm.Kd - K_current) / m2) * m2
+                end
+            end
+        else
+            firm.EId = 0.0
+        end
+    end
+    
+    # === SUBSTITUTION INVESTMENT (_SId equation) ===
+    # Replace obsolete machines based on payback period
+    machines_to_scrap = 0.0
+    current_cost = A_avg > 0 ? model.wAvg / A_avg : Inf
     
     vintages_to_remove = Int[]
     for (vid, vintage) in firm.vintages
         age = model.t - vintage.t0
-        vintage_cost = model.wAvg / vintage.A
+        vintage_cost = vintage.A > 0 ? model.wAvg / vintage.A : Inf
         
-        # Payback period
-        if vintage_cost > current_cost
+        # Payback period calculation
+        if vintage_cost > current_cost && vintage.price > 0
             payback = vintage.price / (vintage_cost - current_cost)
         else
             payback = Inf
@@ -145,7 +178,7 @@ function firm2_decide_investment!(firm::Firm2, model)
         
         # Scrap if old enough or payback period met
         if age >= params.eta || payback <= params.b
-            replacement += vintage.machines
+            machines_to_scrap += vintage.machines
             push!(vintages_to_remove, vid)
         end
     end
@@ -155,8 +188,105 @@ function firm2_decide_investment!(firm::Firm2, model)
         delete!(firm.vintages, vid)
     end
     
+    # Capital shrinkage desired?
+    capital_shrink = max(K_current - firm.Kd, 0.0)
+    machines_to_remove = floor(capital_shrink / m2)
+    
+    # Substitution investment (machines to scrap minus machines removed due to shrinkage)
+    firm.SId = max(machines_to_scrap - machines_to_remove, 0.0) * m2
+    
     # Total investment demand
-    firm.Id = expansion + replacement
+    firm.Id = firm.EId + firm.SId
+end
+
+"""
+    firm2_execute_investment!(firm::Firm2, model)
+
+Execute investment with financing constraints.
+Implements the invest() function from C model for both expansion and substitution.
+Updates _EI, _SI fields and modifies firm's net worth and debt.
+"""
+function firm2_execute_investment!(firm::Firm2, model)
+    params = model.params
+    
+    # Execute expansion investment first
+    firm.EI = execute_investment_order(firm, firm.EId, model)
+    
+    # Execute substitution investment
+    firm.SI = execute_investment_order(firm, firm.SId, model)
+    
+    # Update capital stock after investments
+    # This will be done when machines are delivered
+end
+
+"""
+    execute_investment_order(firm::Firm2, desired::Float64, model)
+
+Execute a single investment order (expansion or substitution) with financing.
+Returns the actual investment achieved.
+"""
+function execute_investment_order(firm::Firm2, desired::Float64, model)
+    params = model.params
+    
+    if desired <= 0
+        return 0.0
+    end
+    
+    m2 = params.m2
+    
+    # Get supplier price
+    if firm.supplier_id > 0 && hasid(model, firm.supplier_id)
+        supplier = model[firm.supplier_id]
+        p1 = supplier.p1
+    else
+        p1 = model.p1avg
+    end
+    
+    # Investment cost
+    inv_cost = p1 * desired / m2
+    
+    # Available financing (simplified - full model would include bank credit limits)
+    available_credit = max(0.0, firm.NW2 * params.Lambda - firm.Deb2)
+    
+    # Determine actual investment
+    actual_investment = 0.0
+    loan = 0.0
+    
+    if inv_cost <= firm.NW2
+        # Can invest with own funds
+        actual_investment = desired
+        firm.NW2 -= inv_cost
+    elseif inv_cost <= firm.NW2 + available_credit
+        # Can finance with debt
+        actual_investment = desired
+        loan = inv_cost - firm.NW2
+        firm.Deb2 += loan
+        firm.NW2 = 0.0
+    else
+        # Credit constrained - invest what's possible
+        total_funds = firm.NW2 + available_credit
+        actual_investment = max(floor(total_funds / p1) * m2, 0.0)
+        
+        if actual_investment > 0
+            inv_cost = p1 * actual_investment / m2
+            if inv_cost <= firm.NW2
+                firm.NW2 -= inv_cost
+            else
+                loan = inv_cost - firm.NW2
+                firm.Deb2 += loan
+                firm.NW2 = 0.0
+            end
+        end
+    end
+    
+    # Place order with supplier (machines will be delivered)
+    if actual_investment > 0 && firm.supplier_id > 0 && hasid(model, firm.supplier_id)
+        supplier = model[firm.supplier_id]
+        n_machines = round(Int, actual_investment / m2)
+        supplier.D1 += n_machines  # Add to supplier's demand
+    end
+    
+    return actual_investment
 end
 
 """
