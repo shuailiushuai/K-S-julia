@@ -235,7 +235,7 @@ function execute_investment_order(firm::Firm2, desired::Float64, model)
     m2 = params.m2
     
     # Get supplier price
-    if firm.supplier_id > 0 && hasid(model, firm.supplier_id)
+    if firm.supplier_id > 0 && Agents.hasid(model, firm.supplier_id)
         supplier = model[firm.supplier_id]
         p1 = supplier.p1
     else
@@ -280,7 +280,7 @@ function execute_investment_order(firm::Firm2, desired::Float64, model)
     end
     
     # Place order with supplier (machines will be delivered)
-    if actual_investment > 0 && firm.supplier_id > 0 && hasid(model, firm.supplier_id)
+    if actual_investment > 0 && firm.supplier_id > 0 && Agents.hasid(model, firm.supplier_id)
         supplier = model[firm.supplier_id]
         n_machines = round(Int, actual_investment / m2)
         supplier.D1 += n_machines  # Add to supplier's demand
@@ -326,7 +326,10 @@ function firm2_set_price!(firm::Firm2, model)
     # Adjust markup based on market share change
     if firm.age > 0
         # Market share growth
-        f2_growth = firm.f2 - get(model.properties, :f2_prev, Dict{Int,Float64}())[firm.id]
+        props = Agents.abmproperties(model)
+        f2_prev_dict = get(props, :f2_prev, Dict{Int,Float64}())
+        f2_prev = get(f2_prev_dict, firm.id, firm.f2)
+        f2_growth = firm.f2 - f2_prev
         
         # Adjust markup: increase if gaining share, decrease if losing
         markup_change = params.upsilon * f2_growth
@@ -409,7 +412,8 @@ function firm2_update_finances!(firm::Firm2, model)
     bonus = 0.0
     if net_profit > 0 && firm.K > 0
         profit_rate = net_profit / firm.K
-        avg_profit_rate = get(model.properties, :Pi2rateAvg, 0.0)
+        props = Agents.abmproperties(model)
+        avg_profit_rate = get(props, :Pi2rateAvg, 0.0)
         if profit_rate > avg_profit_rate && firm.L2 > 0
             bonus = params.psi6 * net_profit
         end
@@ -446,7 +450,7 @@ function firm2_check_exit!(firm::Firm2, model)
         
         # Release workers
         for wid in firm.worker_ids
-            if hasid(model, wid)
+            if Agents.hasid(model, wid)
                 worker = model[wid]
                 worker.employed = 0
                 worker.employer = nothing

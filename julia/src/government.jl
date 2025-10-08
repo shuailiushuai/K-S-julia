@@ -54,13 +54,14 @@ function compute_government_expenditure!(model)
     
     # Fixed government expenditure
     if params.flagGovExp >= 1
-        G_fixed = get(model.properties, :G_fixed, 0.0)
+        props = Agents.abmproperties(model)
+        G_fixed = get(props, :G_fixed, 0.0)
         if model.t > 1
             G_fixed *= (1 + params.gG)
         else
             G_fixed = 0.1 * model.GDPnom  # Initial value
         end
-        model.properties[:G_fixed] = G_fixed
+        props[:G_fixed] = G_fixed
         G += G_fixed
     end
     

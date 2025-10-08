@@ -28,6 +28,7 @@ using DataFrames
 export Worker, Firm1, Firm2, Bank
 export KSModelSpace, initialize_model, model_step!, agent_step!
 export run_simulation, collect_data
+export ModelParameters, load_baseline_parameters, load_benchmark_parameters
 
 # Include sub-modules
 include("types.jl")

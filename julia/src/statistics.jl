@@ -15,29 +15,29 @@ function compute_aggregates!(model)
     
     # Sector 1 aggregates
     model.F1 = length(model.firm1_ids)
-    model.L1 = sum(model[fid].L1 for fid in model.firm1_ids if hasid(model, fid))
-    model.Q1 = sum(model[fid].Q1e for fid in model.firm1_ids if hasid(model, fid))
-    model.S1 = sum(model[fid].S1 for fid in model.firm1_ids if hasid(model, fid))
-    model.D1 = sum(model[fid].D1 for fid in model.firm1_ids if hasid(model, fid))
+    model.L1 = sum(model[fid].L1 for fid in model.firm1_ids if Agents.hasid(model, fid); init=0)
+    model.Q1 = sum(model[fid].Q1e for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
+    model.S1 = sum(model[fid].S1 for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
+    model.D1 = sum(model[fid].D1 for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
     
     # Average productivity sector 1
     if !isempty(model.firm1_ids)
-        model.A1 = mean(model[fid].A for fid in model.firm1_ids if hasid(model, fid))
+        model.A1 = mean(model[fid].A for fid in model.firm1_ids if Agents.hasid(model, fid); init=1.0)
     end
     
     # Sector 2 aggregates
     model.F2 = length(model.firm2_ids)
-    model.L2 = sum(model[fid].L2 for fid in model.firm2_ids if hasid(model, fid))
-    model.Q2 = sum(model[fid].Q2e for fid in model.firm2_ids if hasid(model, fid))
-    model.S2 = sum(model[fid].S2 for fid in model.firm2_ids if hasid(model, fid))
-    model.D2 = sum(model[fid].D2 for fid in model.firm2_ids if hasid(model, fid))
+    model.L2 = sum(model[fid].L2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0)
+    model.Q2 = sum(model[fid].Q2e for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
+    model.S2 = sum(model[fid].S2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
+    model.D2 = sum(model[fid].D2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
     
     # Average productivity sector 2
     if !isempty(model.firm2_ids)
-        total_k = sum(model[fid].K for fid in model.firm2_ids if hasid(model, fid))
+        total_k = sum(model[fid].K for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
         if total_k > 0
             weighted_A = sum(model[fid].K * firm2_average_productivity(model[fid]) 
-                            for fid in model.firm2_ids if hasid(model, fid))
+                            for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
             model.A2 = weighted_A / total_k
         end
     end
@@ -49,9 +49,9 @@ function compute_aggregates!(model)
     
     # Dividends
     model.Div = sum(max(0.0, (model[fid].NW1 * params.d1)) 
-                   for fid in model.firm1_ids if hasid(model, fid))
+                   for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
     model.Div += sum(max(0.0, (model[fid].NW2 * params.d2)) 
-                    for fid in model.firm2_ids if hasid(model, fid))
+                    for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
 end
 
 """
@@ -78,7 +78,7 @@ function collect_firm_data(model)
     
     # Sector 1 firms
     for fid in model.firm1_ids
-        if !hasid(model, fid)
+        if !Agents.hasid(model, fid)
             continue
         end
         firm = model[fid]
@@ -100,7 +100,7 @@ function collect_firm_data(model)
     
     # Sector 2 firms
     for fid in model.firm2_ids
-        if !hasid(model, fid)
+        if !Agents.hasid(model, fid)
             continue
         end
         firm = model[fid]
@@ -143,7 +143,7 @@ function collect_worker_data(model)
     )
     
     for wid in model.worker_ids
-        if !hasid(model, wid)
+        if !Agents.hasid(model, wid)
             continue
         end
         worker = model[wid]
