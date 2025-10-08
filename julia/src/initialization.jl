@@ -136,17 +136,17 @@ function initialize_banks!(model)
     
     for i in 1:params.B
         # Size heterogeneity using Pareto distribution
-        size_factor = rand(abmrng(model), Pareto(params.alphaB))
+        size_factor = rand(Agents.abmrng(model), Pareto(params.alphaB))
         nw = bank_nw * size_factor / params.B
         
         bank = Bank(
-            id = nextid(model),
+            id = Agents.nextid(model),
             NWb = nw,
             r = params.rT,
             rDeb = params.rT + params.muDeb,
             rD = params.rT - params.muD
         )
-        add_agent!(bank, model)
+        Agents.add_agent!(bank, model)
         push!(model.bank_ids, bank.id)
     end
 end
@@ -175,14 +175,14 @@ function initialize_firm1!(model)
         B = Btau0
         
         # Initial net worth with heterogeneity
-        nw_factor = params.Phi3 + rand(abmrng(model)) * (params.Phi4 - params.Phi3)
+        nw_factor = params.Phi3 + rand(Agents.abmrng(model)) * (params.Phi4 - params.Phi3)
         nw = params.NW10 * nw_factor
         
         # Initial debt
         deb = nw * params.Deb10ratio / (1 - params.Deb10ratio)
         
         firm = Firm1(
-            id = nextid(model),
+            id = Agents.nextid(model),
             A = A,
             B = B,
             Atau = A,
@@ -194,7 +194,7 @@ function initialize_firm1!(model)
             c1 = c10,
             p1 = p10
         )
-        add_agent!(firm, model)
+        Agents.add_agent!(firm, model)
         push!(model.firm1_ids, firm.id)
     end
 end
@@ -209,7 +209,7 @@ function initialize_firm2!(model)
     
     for i in 1:params.F20
         # Initial net worth with heterogeneity
-        nw_factor = params.Phi1 + rand(abmrng(model)) * (params.Phi2 - params.Phi1)
+        nw_factor = params.Phi1 + rand(Agents.abmrng(model)) * (params.Phi2 - params.Phi1)
         nw = params.NW20 * nw_factor
         
         # Initial debt
@@ -219,7 +219,7 @@ function initialize_firm2!(model)
         k = nw / 10.0  # Simple initial capital
         
         firm = Firm2(
-            id = nextid(model),
+            id = Agents.nextid(model),
             K = k,
             NW2 = nw,
             Deb2 = deb,
@@ -241,7 +241,7 @@ function initialize_firm2!(model)
             price = model.p1avg
         )
         
-        add_agent!(firm, model)
+        Agents.add_agent!(firm, model)
         push!(model.firm2_ids, firm.id)
     end
 end
@@ -256,18 +256,18 @@ function initialize_workers!(model)
     
     for i in 1:params.Ls0
         worker = Worker(
-            id = nextid(model),
+            id = Agents.nextid(model),
             employed = 0,
             w = 1.0,
             wRes = 1.0,
             s = 1.0,
             sV = 1.0,
             sT = 1.0,
-            age = rand(abmrng(model), 1:params.Tr),
+            age = rand(Agents.abmrng(model), 1:params.Tr),
             Tc = params.Tc,
             wage_memory = fill(1.0, params.Ts)
         )
-        add_agent!(worker, model)
+        Agents.add_agent!(worker, model)
         push!(model.worker_ids, worker.id)
     end
     
@@ -286,7 +286,7 @@ function establish_bank_firm_relationships!(model)
     # Assign Firm1 to banks
     for fid in model.firm1_ids
         firm = model[fid]
-        bank_id = rand(abmrng(model), bank_ids)
+        bank_id = rand(Agents.abmrng(model), bank_ids)
         firm.bank_id = bank_id
         bank = model[bank_id]
         push!(bank.client1_ids, fid)
@@ -295,7 +295,7 @@ function establish_bank_firm_relationships!(model)
     # Assign Firm2 to banks
     for fid in model.firm2_ids
         firm = model[fid]
-        bank_id = rand(abmrng(model), bank_ids)
+        bank_id = rand(Agents.abmrng(model), bank_ids)
         firm.bank_id = bank_id
         bank = model[bank_id]
         push!(bank.client2_ids, fid)
@@ -315,7 +315,7 @@ function establish_firm_customer_relationships!(model)
     # Each Firm2 chooses a supplier
     for fid in model.firm2_ids
         firm = model[fid]
-        firm.supplier_id = rand(abmrng(model), firm1_ids)
+        firm.supplier_id = rand(Agents.abmrng(model), firm1_ids)
     end
     
     # Each Firm1 builds initial customer list
@@ -325,7 +325,7 @@ function establish_firm_customer_relationships!(model)
         customers = [f2id for f2id in model.firm2_ids if model[f2id].supplier_id == fid]
         # Add some random additional potential customers
         n_extra = Int(round(params.gamma * length(model.firm2_ids)))
-        extras = sample(abmrng(model), model.firm2_ids, min(n_extra, length(model.firm2_ids)), replace=false)
+        extras = StatsBase.sample(Agents.abmrng(model), model.firm2_ids, min(n_extra, length(model.firm2_ids)), replace=false)
         firm.client_ids = unique(vcat(customers, extras))
     end
 end
