@@ -212,7 +212,11 @@ function update_minimum_wage!(model)
         
         productivity_growth = 0.0
         if length(model.GDP_history) >= 2
-            productivity_growth = (model.A2 - get(model.properties, :A2_prev, model.A2)) / get(model.properties, :A2_prev, 1.0)
+            # Store previous A2 for productivity growth calculation
+            A2_prev = length(model.GDP_history) >= 1 ? model.GDP_history[end] / model.Q2 * model.CPI_history[1] / model.p2avg : model.A2
+            if A2_prev > 0
+                productivity_growth = (model.A2 - A2_prev) / A2_prev
+            end
         end
         
         wage_growth = indexation * (params.psi1 * model.inflation + params.psi2 * productivity_growth)

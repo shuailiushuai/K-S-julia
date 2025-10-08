@@ -22,7 +22,8 @@ function compute_aggregates!(model)
     
     # Average productivity sector 1
     if !isempty(model.firm1_ids)
-        model.A1 = mean(model[fid].A for fid in model.firm1_ids if Agents.hasid(model, fid); init=1.0)
+        valid_firms = [model[fid].A for fid in model.firm1_ids if Agents.hasid(model, fid)]
+        model.A1 = isempty(valid_firms) ? 1.0 : mean(valid_firms)
     end
     
     # Sector 2 aggregates

@@ -279,12 +279,8 @@ function execute_investment_order(firm::Firm2, desired::Float64, model)
         end
     end
     
-    # Place order with supplier (machines will be delivered)
-    if actual_investment > 0 && firm.supplier_id > 0 && Agents.hasid(model, firm.supplier_id)
-        supplier = model[firm.supplier_id]
-        n_machines = round(Int, actual_investment / m2)
-        supplier.D1 += n_machines  # Add to supplier's demand
-    end
+    # Place order with supplier (machines will be delivered in phase 8)
+    # Note: D1 is already aggregated in phase 3 from Id, so we don't modify it here
     
     return actual_investment
 end

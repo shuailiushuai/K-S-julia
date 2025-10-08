@@ -133,30 +133,44 @@ end
     firm1_plan_production!(firm::Firm1, model)
 
 Plan production based on orders and labor.
+Production is initially based on demand, then adjusted after hiring.
 """
 function firm1_plan_production!(firm::Firm1, model)
     params = model.params
     
-    # Production capacity based on workers
-    Q_max = firm.L1 * params.m1 * firm.B
-    
-    # Desired production is orders plus some inventory buffer
-    Q_desired = firm.D1 * (1 + params.iota)
-    
-    # Actual production limited by capacity
-    firm.Q1 = min(Q_desired, Q_max)
-    
-    # Effective production (same if no constraints)
-    firm.Q1e = firm.Q1
+    # Planned production based on demand (orders) plus inventory buffer
+    # This is what firm WANTS to produce, not constrained by current labor
+    firm.Q1 = firm.D1 * (1 + params.iota)
 end
 
 """
     firm1_produce!(firm::Firm1, model)
 
 Execute production for capital-good firm.
+Adjusts planned production (Q1) to effective production (Q1e) based on actual labor hired.
 """
 function firm1_produce!(firm::Firm1, model)
-    # Sales are minimum of production and demand
+    params = model.params
+    
+    # Adjust planned production to effective production based on labor hired
+    if firm.L1 >= firm.L1d
+        # Got all desired workers, produce as planned
+        firm.Q1e = firm.Q1
+    else
+        # Labor constrained - adjust production proportionally
+        # Account for R&D workers separately
+        L_prod_desired = firm.L1d - firm.L1rd
+        L_prod_actual = firm.L1 - floor(Int, firm.L1rd * firm.L1 / max(1, firm.L1d))
+        
+        if L_prod_desired > 0
+            adjustment_factor = L_prod_actual / L_prod_desired
+            firm.Q1e = max(0, firm.Q1 * adjustment_factor)
+        else
+            firm.Q1e = 0.0
+        end
+    end
+    
+    # Sales are minimum of available output and demand
     firm.S1 = min(firm.Q1e + firm.N1, firm.D1)
     
     # Update inventories
