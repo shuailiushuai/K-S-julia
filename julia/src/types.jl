@@ -94,6 +94,7 @@ Represents a capital-good firm (sector 1) in the K+S model.
     Q1e::Float64 = 0.0
     D1::Float64 = 0.0
     S1::Float64 = 0.0
+    S1_prev::Float64 = 0.0  # Previous period sales for R&D calculation
     N1::Float64 = 0.0
     p1::Float64 = 1.0
     c1::Float64 = 1.0

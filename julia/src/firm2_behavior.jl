@@ -349,8 +349,8 @@ function firm2_compute_labor_demand!(firm::Firm2, model)
     if A_avg > 0
         L_needed = firm.Q2 / A_avg
         
-        # Add slack for hiring buffer
-        firm.L2d = L_needed * (1 + params.theta)
+        # Desired labor (rounded up)
+        firm.L2d = ceil(L_needed)
     else
         firm.L2d = 0.0
     end
