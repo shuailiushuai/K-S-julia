@@ -432,9 +432,5 @@ function initialize_history!(model)
     model.CPI_history = fill(1.0, params.mPer)
     model.CPI = 1.0
     
-    # Initialize firm histories
-    for fid in model.firm2_ids
-        firm = model[fid]
-        firm.D2_history = fill(0.0, 4)
-    end
+    # Note: Firm histories are already initialized in initialize_firm2!
 end
