@@ -356,6 +356,81 @@ function get_default_parameters()
 end
 
 #=============================================================================
+STEPPING FUNCTIONS (Defined before initialization for forward reference)
+=============================================================================#
+
+"""
+Main model stepping function - orchestrates all phases of one time step
+This implements the timeStep equation from the LSD model
+"""
+function model_step!(model)
+    abmproperties(model).tick += 1
+    t = abmproperties(model).tick
+    
+    # Phase 1: Central bank sets interest rates
+    update_interest_rates!(model)
+    
+    # Phase 2: Firms plan production and labor demand
+    # Sector 2 firms form expectations and plan production
+    for firm in allagents(model)
+        if firm isa Firm2
+            plan_production_sector2!(firm, model)
+        end
+    end
+    
+    # Sector 1 firms receive orders and plan production
+    for firm in allagents(model)
+        if firm isa Firm1
+            plan_production_sector1!(firm, model)
+        end
+    end
+    
+    # Phase 3: Labor market - job search and matching
+    # Workers apply for jobs
+    for worker in allagents(model)
+        if worker isa Worker
+            worker_job_search!(worker, model)
+        end
+    end
+    
+    # Firms post openings and hire
+    firm_hiring!(model)
+    
+    # Phase 4: Production
+    for firm in allagents(model)
+        if firm isa Firm1
+            produce_sector1!(firm, model)
+        elseif firm isa Firm2
+            produce_sector2!(firm, model)
+        end
+    end
+    
+    # Phase 5: Firms set prices
+    for firm in allagents(model)
+        if firm isa Firm1
+            set_price_sector1!(firm, model)
+        elseif firm isa Firm2
+            set_price_sector2!(firm, model)
+        end
+    end
+    
+    # Phase 6: Consumption and goods market
+    consumption_market!(model)
+    
+    # Phase 7: Finance and profits
+    compute_profits!(model)
+    
+    # Phase 8: Government and taxes
+    government_operations!(model)
+    
+    # Phase 9: Entry and exit
+    entry_exit!(model)
+    
+    # Phase 10: Update aggregates
+    update_aggregates!(model)
+end
+
+#=============================================================================
 INITIALIZATION FUNCTIONS
 =============================================================================#
 
@@ -389,19 +464,15 @@ function initialize_ks_model(; parameters=get_default_parameters())
     )
     
     # Create the model with NoSpaceAgent (abstract labor market)
-    # Note: In Agents.jl v6.2, stepping function should be set during creation
+    # In Agents.jl v6.2, model_step! must be provided as keyword argument
     model = StandardABM(
         Union{Worker, Firm1, Firm2, Bank}, nothing;  # Agent type and space
         properties=properties,
         rng=rng,
-        scheduler=Schedulers.Randomly()
+        scheduler=Schedulers.Randomly(),
+        model_step! = model_step!,  # Required in Agents.jl v6.2
+        warn = false  # Suppress union type warning for mixed agents
     )
-    
-    # Set the model stepping function manually for compatibility
-    # In v6.2, this needs to be done through the model fields
-    # The warning says to pass agent_step! or model_step! as keyword arguments
-    # but the actual way depends on the version
-    # For now, we'll pass it to run! directly
     
     # Initialize banks first
     initialize_banks!(model, n_banks, parameters)
@@ -572,80 +643,6 @@ function initialize_workers!(model, n_workers, params)
     end
 end
 
-#=============================================================================
-STEPPING FUNCTIONS
-=============================================================================#
-
-"""
-Main model stepping function - orchestrates all phases of one time step
-This implements the timeStep equation from the LSD model
-"""
-function model_step!(model)
-    abmproperties(model).tick += 1
-    t = abmproperties(model).tick
-    
-    # Phase 1: Central bank sets interest rates
-    update_interest_rates!(model)
-    
-    # Phase 2: Firms plan production and labor demand
-    # Sector 2 firms form expectations and plan production
-    for firm in allagents(model)
-        if firm isa Firm2
-            plan_production_sector2!(firm, model)
-        end
-    end
-    
-    # Sector 1 firms receive orders and plan production
-    for firm in allagents(model)
-        if firm isa Firm1
-            plan_production_sector1!(firm, model)
-        end
-    end
-    
-    # Phase 3: Labor market - job search and matching
-    # Workers apply for jobs
-    for worker in allagents(model)
-        if worker isa Worker
-            worker_job_search!(worker, model)
-        end
-    end
-    
-    # Firms post openings and hire
-    firm_hiring!(model)
-    
-    # Phase 4: Production
-    for firm in allagents(model)
-        if firm isa Firm1
-            produce_sector1!(firm, model)
-        elseif firm isa Firm2
-            produce_sector2!(firm, model)
-        end
-    end
-    
-    # Phase 5: Firms set prices
-    for firm in allagents(model)
-        if firm isa Firm1
-            set_price_sector1!(firm, model)
-        elseif firm isa Firm2
-            set_price_sector2!(firm, model)
-        end
-    end
-    
-    # Phase 6: Consumption and goods market
-    consumption_market!(model)
-    
-    # Phase 7: Finance and profits
-    compute_profits!(model)
-    
-    # Phase 8: Government and taxes
-    government_operations!(model)
-    
-    # Phase 9: Entry and exit
-    entry_exit!(model)
-    
-    # Phase 10: Update aggregates
-    update_aggregates!(model)
-end
 
 #=============================================================================
 PHASE 1: INTEREST RATES
