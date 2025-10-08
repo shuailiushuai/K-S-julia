@@ -206,8 +206,10 @@ function initialize_firm1!(model)
             c1 = c10,
             p1 = p10,
             D1 = D10,  # Initialize with expected demand
+            S1 = D10 * p10,  # Initialize with expected sales
+            S1_prev = D10 * p10,  # Initialize previous sales for R&D calculation
             f1 = 1.0 / params.F10,  # Fair initial market share
-            L1rd = floor(Int, RD0 / INIWAGE)  # Initial R&D workers
+            L1rd = floor(RD0 / INIWAGE)  # Initial R&D workers (as Float64)
         )
         Agents.add_agent!(firm, model)
         push!(model.firm1_ids, firm.id)

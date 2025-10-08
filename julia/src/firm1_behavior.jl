@@ -153,18 +153,26 @@ function firm1_produce!(firm::Firm1, model)
     params = model.params
     
     # Adjust planned production to effective production based on labor hired
-    if firm.L1 >= firm.L1d
-        # Got all desired workers, produce as planned
+    if firm.L1 >= firm.L1d || firm.L1d <= 0
+        # Got all desired workers (or no demand), produce as planned
         firm.Q1e = firm.Q1
     else
         # Labor constrained - adjust production proportionally
         # Account for R&D workers separately
-        L_prod_desired = firm.L1d - firm.L1rd
-        L_prod_actual = firm.L1 - floor(Int, firm.L1rd * firm.L1 / max(1, firm.L1d))
+        L_prod_desired = max(0.0, firm.L1d - firm.L1rd)
+        
+        # Calculate actual production workers
+        # Allocate R&D workers proportionally to total workers
+        if firm.L1d > 0
+            L_rd_actual = min(firm.L1rd, firm.L1 * firm.L1rd / firm.L1d)
+        else
+            L_rd_actual = 0.0
+        end
+        L_prod_actual = max(0.0, firm.L1 - L_rd_actual)
         
         if L_prod_desired > 0
             adjustment_factor = L_prod_actual / L_prod_desired
-            firm.Q1e = max(0, firm.Q1 * adjustment_factor)
+            firm.Q1e = max(0.0, firm.Q1 * adjustment_factor)
         else
             firm.Q1e = 0.0
         end
@@ -174,7 +182,7 @@ function firm1_produce!(firm::Firm1, model)
     firm.S1 = min(firm.Q1e + firm.N1, firm.D1)
     
     # Update inventories
-    firm.N1 = firm.Q1e + firm.N1 - firm.S1
+    firm.N1 = max(0.0, firm.Q1e + firm.N1 - firm.S1)
 end
 
 """
@@ -200,15 +208,41 @@ Compute desired labor for production and R&D.
 function firm1_compute_labor_demand!(firm::Firm1, model)
     params = model.params
     
-    # Production labor needed
-    L_prod = firm.Q1 / (params.m1 * firm.B)
+    # Production labor needed for planned production Q1
+    # Divide by B (productivity) and m1 (worker output per period)
+    if firm.B > 0 && params.m1 > 0
+        L_prod = firm.Q1 / (params.m1 * firm.B)
+    else
+        L_prod = 0.0
+    end
     
-    # R&D labor (fraction of revenue)
-    revenue = firm.S1 * firm.p1
-    L_rd = min(params.nu * revenue / firm.w1, params.L1rdMax * L_prod)
+    # R&D expenditure based on PREVIOUS period's sales (lagged)
+    # If no previous sales, use a fraction of net worth (like C model)
+    if firm.S1_prev > 0
+        # Use previous period's sales
+        RD = params.nu * firm.S1_prev
+    else
+        # Use net worth as basis (fallback for initialization)
+        RD = params.nu * firm.NW1
+    end
     
-    # Total desired labor (with hiring buffer)
-    firm.L1d = (L_prod + L_rd) * (1 + params.theta)
+    # Always hire at least one worker's worth of R&D (minimum constraint)
+    RD = max(RD, firm.w1)
+    
+    # Convert R&D expenditure to workers
+    if firm.w1 > 0
+        L_rd = ceil(RD / firm.w1)
+    else
+        L_rd = 0.0
+    end
+    
+    # Cap R&D workers at maximum fraction
+    if L_prod > 0
+        L_rd = min(L_rd, params.L1rdMax * L_prod)
+    end
+    
+    # Total desired labor
+    firm.L1d = L_prod + L_rd
     firm.L1rd = L_rd
 end
 

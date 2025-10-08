@@ -29,6 +29,9 @@ function agent_step!(agent::Firm1, model)
     # Age firm
     agent.age += 1
     
+    # Store previous period sales for R&D calculation
+    agent.S1_prev = agent.S1
+    
     # Update average wage
     if isempty(agent.worker_ids)
         agent.w1 = model.wMin
@@ -373,6 +376,16 @@ function create_entrant_firm1!(model)
     nw_factor = params.Phi3 + rand(Agents.abmrng(model)) * (params.Phi4 - params.Phi3)
     nw = params.NW10 * nw_factor
     
+    # Initial price based on productivity
+    c1 = model.wAvg / (A * params.m1)
+    p1 = (1 + params.mu1) * c1
+    
+    # Initial demand (1 machine per client under fair share entry)
+    D1 = length(model.firm2_ids) / max(1, length(model.firm1_ids))
+    
+    # Initial R&D based on expected sales
+    RD = max(params.nu * D1 * p1, model.wAvg)
+    
     firm = Firm1(
         id = Agents.nextid(model),
         A = A,
@@ -382,7 +395,12 @@ function create_entrant_firm1!(model)
         NW1 = nw,
         mu1 = params.mu1,
         w1 = model.wAvg,
-        p1 = (1 + params.mu1) * model.wAvg / A / params.m1
+        c1 = c1,
+        p1 = p1,
+        D1 = D1,
+        S1 = D1 * p1,
+        S1_prev = D1 * p1,
+        L1rd = floor(RD / model.wAvg)
     )
     
     Agents.add_agent!(firm, model)
