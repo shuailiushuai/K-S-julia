@@ -521,7 +521,12 @@ end
 Initialize capital-good firms (Sector 1)
 """
 function initialize_firms1!(model, n_firms, params)
-    banks = collect(allagents(model))
+    banks = [a for a in allagents(model) if a isa Bank]
+    
+    if isempty(banks)
+        @warn "No banks available for Firm1 initialization"
+        return
+    end
     
     # Calculate initial equilibrium (from C code logic)
     Ls0 = params[:n_workers] * params[:labor_scale]
@@ -576,6 +581,11 @@ Initialize consumption-good firms (Sector 2)
 """
 function initialize_firms2!(model, n_firms, params)
     banks = [a for a in allagents(model) if a isa Bank]
+    
+    if isempty(banks)
+        @warn "No banks available for Firm2 initialization"
+        return
+    end
     
     # Calculate initial equilibrium values (from C code)
     # This sets up a coherent initial state with production and employment
@@ -1282,13 +1292,7 @@ function entry_exit!(model)
     # Sector 1 entry
     if n_firms1 < getparam(model, :sector1_max_firms)
         if rand(abmrng(model)) < 0.02  # 2% entry probability
-            initialize_firms1!(model, 1, Dict(
-                :initial_debt_ratio_sector1 => getparam(model, :initial_debt_ratio_sector1),
-                :sector1_labor_productivity => getparam(model, :sector1_labor_productivity),
-                :initial_wage => getparam(model, :initial_wage),
-                :sector1_markup => getparam(model, :sector1_markup),
-                :credit_multiplier => getparam(model, :credit_multiplier)
-            ))
+            initialize_firms1!(model, 1, abmproperties(model).parameters)
             abmproperties(model).firm1_entries += 1
         end
     end
@@ -1296,13 +1300,7 @@ function entry_exit!(model)
     # Sector 2 entry
     if n_firms2 < getparam(model, :sector2_max_firms)
         if rand(abmrng(model)) < 0.02
-            initialize_firms2!(model, 1, Dict(
-                :initial_debt_ratio_sector2 => getparam(model, :initial_debt_ratio_sector2),
-                :sector1_labor_productivity => getparam(model, :sector1_labor_productivity),
-                :initial_wage => getparam(model, :initial_wage),
-                :sector2_markup_initial => getparam(model, :sector2_markup_initial),
-                :credit_multiplier => getparam(model, :credit_multiplier)
-            ))
+            initialize_firms2!(model, 1, abmproperties(model).parameters)
             abmproperties(model).firm2_entries += 1
         end
     end
