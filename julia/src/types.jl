@@ -154,6 +154,7 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     S2::Float64 = 0.0
     N2::Float64 = 0.0
     K::Float64 = 0.0
+    Kd::Float64 = 0.0
     vintages::Dict{Int,NamedTuple} = Dict{Int,NamedTuple}()
     p2::Float64 = 1.0
     c2::Float64 = 1.0
@@ -162,6 +163,11 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     competitiveness::Float64 = 0.0
     NW2::Float64 = 0.0
     Deb2::Float64 = 0.0
+    Id::Float64 = 0.0
+    EId::Float64 = 0.0
+    SId::Float64 = 0.0
+    EI::Float64 = 0.0
+    SI::Float64 = 0.0
     bank_id::Int = 0
     supplier_id::Int = 0
     postChg::Bool = false

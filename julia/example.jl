@@ -39,7 +39,7 @@ println("Initializing model...")
 model = initialize_model(params)
 
 println("Model initialized successfully!")
-println("  - Total agents: $(length(model.agents))")
+println("  - Total agents: $(nagents(model))")
 println()
 
 # Run simulation

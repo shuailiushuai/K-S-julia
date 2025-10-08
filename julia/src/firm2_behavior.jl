@@ -316,7 +316,7 @@ function firm2_check_exit!(firm::Firm2, model)
         
         # Release workers
         for wid in firm.worker_ids
-            if haskey(model.agents, wid)
+            if hasid(model, wid)
                 worker = model[wid]
                 worker.employed = 0
                 worker.employer = nothing

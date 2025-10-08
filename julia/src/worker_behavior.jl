@@ -39,7 +39,7 @@ function worker_apply_for_jobs!(worker::Worker, model)
     
     # Round to integer probabilistically
     n_apply_int = floor(Int, n_apply_actual)
-    if rand(model.rng) < (n_apply_actual - n_apply_int)
+    if rand(abmrng(model)) < (n_apply_actual - n_apply_int)
         n_apply_int += 1
     end
     
@@ -63,7 +63,7 @@ function worker_apply_for_jobs!(worker::Worker, model)
     
     # Sample firms
     n_sample = min(n_apply_int, length(all_firms))
-    selected_firms = sample(model.rng, all_firms, Weights(weights), n_sample, replace=false)
+    selected_firms = sample(abmrng(model), all_firms, Weights(weights), n_sample, replace=false)
     
     # Add to firm application queues
     for fid in selected_firms
@@ -86,7 +86,7 @@ function worker_update_skills!(worker::Worker, model)
         worker.sV = max(1.0, worker.sV * (1 - params.tauU))
         
         # Government training
-        if rand(model.rng) < params.Gamma
+        if rand(abmrng(model)) < params.Gamma
             worker.sT = min(worker.sT * (1 + params.tauG), worker.sT + params.tauG)
         end
         

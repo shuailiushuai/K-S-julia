@@ -30,7 +30,7 @@ function bank_evaluate_credit!(bank::Bank, model)
     
     # Evaluate sector 1 clients
     for fid in bank.client1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm = model[fid]
             score = firm.NW1 > 0 ? firm.NW1 / max(firm.S1, 1.0) : 0.0
             push!(pecking_order, (fid, score))
@@ -39,7 +39,7 @@ function bank_evaluate_credit!(bank::Bank, model)
     
     # Evaluate sector 2 clients
     for fid in bank.client2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm = model[fid]
             score = firm.NW2 > 0 ? firm.NW2 / max(firm.S2, 1.0) : 0.0
             push!(pecking_order, (fid, score))
@@ -79,7 +79,7 @@ function bank_allocate_credit!(bank::Bank, model)
             break
         end
         
-        if !haskey(model.agents, fid)
+        if !hasid(model, fid)
             continue
         end
         
@@ -139,7 +139,7 @@ function bank_collect_deposits!(bank::Bank, model)
     
     # Sector 1 deposits
     for fid in bank.client1_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm = model[fid]
             deposit = max(0.0, firm.NW1 - firm.Deb1)
             total_deposits += deposit
@@ -148,7 +148,7 @@ function bank_collect_deposits!(bank::Bank, model)
     
     # Sector 2 deposits
     for fid in bank.client2_ids
-        if haskey(model.agents, fid)
+        if hasid(model, fid)
             firm = model[fid]
             deposit = max(0.0, firm.NW2 - firm.Deb2)
             total_deposits += deposit
