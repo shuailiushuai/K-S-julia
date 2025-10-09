@@ -47,7 +47,7 @@ w_track = Float64[]
 
 try
     for t in 1:params.T
-        Agents.step!(model, agent_step!, model_step!)
+        Agents.step!(model, 1)
         
         push!(gdp_track, model.GDP)
         push!(ue_track, model.Ue * 100)

@@ -444,8 +444,21 @@ Initialize historical data for moving averages and lagged variables.
 function initialize_history!(model)
     params = model.params
     
-    # Initialize GDP history for moving averages
-    initial_gdp = params.NW10 * params.F10 + params.NW20 * params.F20
+    # CRITICAL FIX: Calculate correct initial GDP from actual firm values
+    # GDP = C + I + dNnom, where initially C ≈ steady-state consumption
+    # and I ≈ steady-state investment
+    
+    # Calculate initial GDP from actual initialized values
+    # C initial ≈ total worker wages at full employment
+    initial_C = params.Ls0 * 1.0  # INIWAGE = 1.0
+    
+    # I initial ≈ replacement investment for all Firm2 capital
+    total_K = sum(model[fid].K for fid in model.firm2_ids; init=0.0)
+    initial_I = total_K / params.eta  # Steady-state replacement
+    
+    # Initial GDP (real)
+    initial_gdp = initial_C + initial_I
+    
     model.GDP_history = fill(initial_gdp, params.mPer)
     model.GDP = initial_gdp
     model.GDPnom = initial_gdp

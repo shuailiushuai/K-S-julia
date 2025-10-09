@@ -190,15 +190,17 @@ function firm2_decide_investment!(firm::Firm2, model)
     # Desired capacity with slack and utilization, based on expectations/inventories
     A_avg = firm2_average_productivity(firm)
     
-    # CRITICAL FIX: Ensure minimum desired capital doesn't drop below current level
-    # too quickly to prevent cascading investment collapse
+    # Calculate desired capital from expectations
     Kd_from_expectations = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
     
-    # For young firms or when expectations are dropping, don't let desired capital
-    # fall below 50% of current capital
-    if firm.age < 10 || firm.D2e < get(firm.D2_history, 2, firm.D2e) * 1.5
-        firm.Kd = max(Kd_from_expectations, firm.K * 0.5)
+    # CRITICAL FIX: Prevent excessive capital drops that can cause investment collapse
+    # Apply a floor only in early periods or when at risk of total collapse
+    if model.t <= 10 || Kd_from_expectations < firm.K * 0.5
+        # In early periods or when desired capital drops too much,
+        # limit the drop to prevent cascading collapse
+        firm.Kd = max(Kd_from_expectations, firm.K * 0.6)
     else
+        # Normal periods: allow natural adjustment
         firm.Kd = Kd_from_expectations
     end
     
@@ -269,8 +271,25 @@ function firm2_decide_investment!(firm::Firm2, model)
     # Substitution investment (machines to scrap minus machines removed due to shrinkage)
     firm.SId = max(machines_to_scrap - machines_to_remove, 0.0) * m2
     
+    # CRITICAL FIX: Ensure minimum replacement investment to prevent collapse
+    # Even if no machines are marked for scrapping by payback/age criteria,
+    # firms should maintain some replacement investment (1/eta of capital per period)
+    # This matches C model steady-state behavior where SId ≈ K / eta
+    if firm.SId == 0.0 && K_current > 0 && !isempty(firm.vintages)
+        # Minimum replacement: replace oldest vintage gradually (1/eta per period)
+        min_replacement = K_current / params.eta
+        firm.SId = max(firm.SId, min_replacement)
+    end
+    
     # Total investment demand
     firm.Id = firm.EId + firm.SId
+    
+    # CRITICAL FIX: Ensure operating firms always have some investment demand
+    # This prevents complete collapse of orders to Sector 1
+    if firm.Id == 0.0 && K_current > 0 && firm.life2cycle > 0
+        # Minimum investment: at least one machine per period for active firms
+        firm.Id = m2
+    end
 end
 
 """
