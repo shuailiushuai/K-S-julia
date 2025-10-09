@@ -288,23 +288,14 @@ class KSModel(mesa.Model):
         self.Def = 0.0  # Deficit
         self.Deb = 0.0  # Public debt
         
-        # Create separate schedulers for different agent types
-        self.schedule_worker = mesa.time.RandomActivation(self)
-        self.schedule_firm1 = mesa.time.RandomActivation(self)
-        self.schedule_firm2 = mesa.time.RandomActivation(self)
-        self.schedule_bank = mesa.time.RandomActivation(self)
-        
-        # Main scheduler (not used directly, just for step counter)
-        self.schedule = mesa.time.BaseScheduler(self)
-        
         # Data collector
         self.datacollector = mesa.DataCollector(
             model_reporters={
                 "GDP": lambda m: m.GDPreal,
                 "Unemployment": lambda m: m.Ue,
                 "Inflation": lambda m: m.dCPI,
-                "Num_Firms1": lambda m: len(m.schedule_firm1.agents),
-                "Num_Firms2": lambda m: len(m.schedule_firm2.agents),
+                "Num_Firms1": lambda m: len(m.get_agents_of_type(Firm1)),
+                "Num_Firms2": lambda m: len(m.get_agents_of_type(Firm2)),
                 "Wages": lambda m: m.wAvg,
                 "Interest_Rate": lambda m: m.r,
                 "Public_Debt": lambda m: m.Deb,
@@ -317,22 +308,26 @@ class KSModel(mesa.Model):
         # Running
         self.running = True
     
+    def get_agents_of_type(self, agent_type):
+        """Get all agents of a specific type"""
+        return self.agents.select(agent_type=agent_type)
+    
     def initialize_agents(self):
         """Initialize all agents"""
         # Create banks
+        banks = []
         for i in range(self.B):
             bank = Bank(i, self)
-            self.schedule_bank.add(bank)
-        
-        banks = list(self.schedule_bank.agents)
+            banks.append(bank)
         
         # Create firm1 (capital-good sector)
+        firm1_list = []
         for i in range(self.F10):
             firm1 = Firm1(i, self)
             # Assign bank
             firm1.bank = self.random.choice(banks)
             firm1.bank.clients1.append(firm1)
-            self.schedule_firm1.add(firm1)
+            firm1_list.append(firm1)
         
         # Create firm2 (consumption-good sector)
         for i in range(self.F20):
@@ -341,18 +336,16 @@ class KSModel(mesa.Model):
             firm2.bank = self.random.choice(banks)
             firm2.bank.clients2.append(firm2)
             # Assign supplier
-            firm2.supplier = self.random.choice(list(self.schedule_firm1.agents))
+            firm2.supplier = self.random.choice(firm1_list)
             firm2.supplier.clients.append(firm2)
-            self.schedule_firm2.add(firm2)
         
         # Create workers
         for i in range(self.Ls0):
             worker = Worker(self.F10 + self.F20 + i, self)
-            self.schedule_worker.add(worker)
     
     def step(self):
         """Execute one time step"""
-        t = self.schedule.steps
+        t = self.steps
         
         # 1. Regime change check
         if t == self.TregChg:
@@ -362,29 +355,29 @@ class KSModel(mesa.Model):
         self.central_bank_policy()
         
         # 3. Firm2: form expectations and plan production
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.form_expectations()
             firm2.plan_production()
             firm2.select_supplier()
         
         # 4. Firm1: R&D, receive orders, plan production
-        for firm1 in self.schedule_firm1.agents:
+        for firm1 in self.get_agents_of_type(Firm1):
             firm1.rd_innovation_imitation()
             firm1.receive_orders()
             firm1.plan_production()
         
         # 5. Workers: update search probabilities and apply for jobs
-        for worker in self.schedule_worker.agents:
+        for worker in self.get_agents_of_type(Worker):
             worker.calculate_search_probability()
             worker.apply_for_jobs()
         
         # 6. Firms: hire/fire workers
         # Sector 1 in random order
-        for firm1 in self.schedule_firm1.agents:
+        for firm1 in self.get_agents_of_type(Firm1):
             firm1.hire_fire_workers()
         
         # Sector 2 in specified order
-        firm2_list = list(self.schedule_firm2.agents)
+        firm2_list = list(self.get_agents_of_type(Firm2))
         if self.flagHireSeq == HiringSequence.HIGHER_WAGE_FIRST:
             firm2_list.sort(key=lambda f: f.wage_offer, reverse=True)
         elif self.flagHireSeq == HiringSequence.NO_WORKERS_FIRST:
@@ -402,17 +395,17 @@ class KSModel(mesa.Model):
             firm2.hire_fire_workers()
         
         # 7. Production
-        for firm1 in self.schedule_firm1.agents:
+        for firm1 in self.get_agents_of_type(Firm1):
             firm1.produce()
         
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.produce()
         
         # 8. Price setting
-        for firm1 in self.schedule_firm1.agents:
+        for firm1 in self.get_agents_of_type(Firm1):
             firm1.p1 = (1 + self.mu1) * self.get_sector1_avg_wage() / firm1.Btau / self.m1
         
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.set_price()
         
         # 9. Government expenditure
@@ -422,26 +415,26 @@ class KSModel(mesa.Model):
         self.match_consumption_market()
         
         # 11. Update competitiveness and market shares
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.update_competitiveness()
         
         self.update_market_shares()
         
         # 12. Compute financial results
-        for firm1 in self.schedule_firm1.agents:
+        for firm1 in self.get_agents_of_type(Firm1):
             firm1.compute_financials()
         
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.compute_financials()
         
         # 13. Credit market
-        for bank in self.schedule_bank.agents:
+        for bank in self.get_agents_of_type(Bank):
             bank.collect_deposits()
             bank.evaluate_credit_requests()
             bank.supply_credit()
         
         # 14. Bank financials and reserve management
-        for bank in self.schedule_bank.agents:
+        for bank in self.get_agents_of_type(Bank):
             bank.compute_financials()
             bank.manage_reserves()
         
@@ -456,7 +449,7 @@ class KSModel(mesa.Model):
         self.process_entries()
         
         # 18. Worker aging and skills
-        for worker in self.schedule_worker.agents:
+        for worker in self.get_agents_of_type(Worker):
             worker.update_skills()
             worker.age_one_period()
             if worker.employed:
@@ -467,9 +460,6 @@ class KSModel(mesa.Model):
         
         # 20. Data collection
         self.datacollector.collect(self)
-        
-        # Increment time
-        self.schedule.steps += 1
     
     def central_bank_policy(self):
         """Central bank sets interest rate (Taylor rule)"""
@@ -488,11 +478,11 @@ class KSModel(mesa.Model):
     def match_consumption_market(self):
         """Match consumption demand with supply"""
         # Total consumption demand from workers
-        Cd = sum(worker.get_income() for worker in self.schedule_worker.agents)
+        Cd = sum(worker.get_income() for worker in self.get_agents_of_type(Worker))
         
         # Allocate demand by market shares
         D2_total = 0
-        for firm2 in self.schedule_firm2.agents:
+        for firm2 in self.get_agents_of_type(Firm2):
             firm2.D2d = firm2.f * Cd
             firm2.D2 = min(firm2.D2d, firm2.Q2e + firm2.N)
             firm2.unfilled_demand = firm2.D2d - firm2.D2
@@ -505,35 +495,37 @@ class KSModel(mesa.Model):
     def update_market_shares(self):
         """Update market shares using replicator dynamics"""
         # Firm2 market shares
-        if len(self.schedule_firm2.agents) > 0:
-            E_weighted = sum(f2.f * f2.E for f2 in self.schedule_firm2.agents)
+        firm2_agents = list(self.get_agents_of_type(Firm2))
+        if len(firm2_agents) > 0:
+            E_weighted = sum(f2.f * f2.E for f2 in firm2_agents)
             
-            for firm2 in self.schedule_firm2.agents:
+            for firm2 in firm2_agents:
                 f2_new = firm2.f * (1 + self.chi * (firm2.E - E_weighted))
                 firm2.f = max(f2_new, 0)
             
             # Normalize
-            f2_total = sum(f2.f for f2 in self.schedule_firm2.agents)
+            f2_total = sum(f2.f for f2 in firm2_agents)
             if f2_total > 0:
-                for firm2 in self.schedule_firm2.agents:
+                for firm2 in firm2_agents:
                     firm2.f = firm2.f / f2_total
         
         # Firm1 market shares (based on clients)
-        if len(self.schedule_firm1.agents) > 0:
-            for firm1 in self.schedule_firm1.agents:
-                firm1.f = len(firm1.clients) / max(len(self.schedule_firm2.agents), 1)
+        firm1_agents = list(self.get_agents_of_type(Firm1))
+        if len(firm1_agents) > 0:
+            for firm1 in firm1_agents:
+                firm1.f = len(firm1.clients) / max(len(firm2_agents), 1)
     
     def government_expenditure(self):
         """Calculate government expenditure"""
-        unemployed = [w for w in self.schedule_worker.agents if not w.employed]
+        unemployed = [w for w in self.get_agents_of_type(Worker) if not w.employed]
         self.G = self.w0min * len(unemployed)  # Simplified: only unemployment benefits
     
     def government_finances(self):
         """Calculate government finances"""
         # Collect taxes
-        self.Tax = sum(f.Tax for f in self.schedule_firm1.agents)
-        self.Tax += sum(f.Tax for f in self.schedule_firm2.agents)
-        self.Tax += sum(b.TaxB for b in self.schedule_bank.agents)
+        self.Tax = sum(f.Tax for f in self.get_agents_of_type(Firm1))
+        self.Tax += sum(f.Tax for f in self.get_agents_of_type(Firm2))
+        self.Tax += sum(b.TaxB for b in self.get_agents_of_type(Bank))
         
         # Deficit
         self.Def = self.G - self.Tax
@@ -543,7 +535,7 @@ class KSModel(mesa.Model):
     
     def bailout_banks(self):
         """Bailout banks with negative net worth"""
-        for bank in self.schedule_bank.agents:
+        for bank in self.get_agents_of_type(Bank):
             if bank.bailout_condition():
                 # Simplified bailout
                 bailout = -bank.NWb + self.EqB0 * self.NW10
@@ -553,7 +545,7 @@ class KSModel(mesa.Model):
     def process_exits(self):
         """Remove firms that meet exit conditions"""
         # Firm1 exits
-        exiting_firm1 = [f for f in self.schedule_firm1.agents if f.exit_condition()]
+        exiting_firm1 = [f for f in self.get_agents_of_type(Firm1) if f.exit_condition()]
         for firm1 in exiting_firm1:
             # Fire workers
             for worker in firm1.workers[:]:
@@ -564,14 +556,14 @@ class KSModel(mesa.Model):
                 firm1.bank.add_bad_debt(firm1.Deb)
             
             # Remove from clients
-            for firm2 in self.schedule_firm2.agents:
+            for firm2 in self.get_agents_of_type(Firm2):
                 if firm2.supplier == firm1:
                     firm2.supplier = None
             
-            self.schedule_firm1.remove(firm1)
+            firm1.remove()
         
         # Firm2 exits
-        exiting_firm2 = [f for f in self.schedule_firm2.agents if f.exit_condition()]
+        exiting_firm2 = [f for f in self.get_agents_of_type(Firm2) if f.exit_condition()]
         for firm2 in exiting_firm2:
             # Fire workers
             for worker in firm2.workers[:]:
@@ -585,7 +577,7 @@ class KSModel(mesa.Model):
             if firm2.supplier and firm2 in firm2.supplier.clients:
                 firm2.supplier.clients.remove(firm2)
             
-            self.schedule_firm2.remove(firm2)
+            firm2.remove()
     
     def process_entries(self):
         """Add new entrant firms"""
@@ -601,23 +593,23 @@ class KSModel(mesa.Model):
     def update_statistics(self):
         """Update macro statistics"""
         # Employment
-        employed = len([w for w in self.schedule_worker.agents if w.employed])
-        self.Ls = len(self.schedule_worker.agents)
+        employed = len([w for w in self.get_agents_of_type(Worker) if w.employed])
+        self.Ls = len(self.get_agents_of_type(Worker))
         self.Ue = (self.Ls - employed) / max(self.Ls, 1)
         
         # Wages
-        employed_workers = [w for w in self.schedule_worker.agents if w.employed]
+        employed_workers = [w for w in self.get_agents_of_type(Worker) if w.employed]
         if len(employed_workers) > 0:
             self.wAvg = np.mean([w.w for w in employed_workers])
             self.wU = self.phi * self.wAvg
         
         # GDP
-        Q1_total = sum(f.Q1e for f in self.schedule_firm1.agents)
-        Q2_total = sum(f.Q2e for f in self.schedule_firm2.agents)
+        Q1_total = sum(f.Q1e for f in self.get_agents_of_type(Firm1))
+        Q2_total = sum(f.Q2e for f in self.get_agents_of_type(Firm2))
         self.GDPreal = Q1_total + Q2_total
         
-        S1_total = sum(f.S for f in self.schedule_firm1.agents)
-        S2_total = sum(f.S for f in self.schedule_firm2.agents)
+        S1_total = sum(f.S for f in self.get_agents_of_type(Firm1))
+        S2_total = sum(f.S for f in self.get_agents_of_type(Firm2))
         self.GDPnom = S1_total + S2_total
         
         # Prices and inflation
@@ -631,29 +623,33 @@ class KSModel(mesa.Model):
         return self.Ue
     
     def get_sector1_avg_wage(self) -> float:
-        workers1 = [w for f in self.schedule_firm1.agents for w in f.workers]
+        workers1 = [w for f in self.get_agents_of_type(Firm1) for w in f.workers]
         return np.mean([w.w for w in workers1]) if len(workers1) > 0 else self.w0min
     
     def get_sector2_avg_wage(self) -> float:
-        workers2 = [w for f in self.schedule_firm2.agents for w in f.workers]
+        workers2 = [w for f in self.get_agents_of_type(Firm2) for w in f.workers]
         return np.mean([w.w for w in workers2]) if len(workers2) > 0 else self.w0min
     
     def get_avg_price_sector1(self) -> float:
-        if len(self.schedule_firm1.agents) > 0:
-            return np.mean([f.p1 for f in self.schedule_firm1.agents])
+        firm1_agents = list(self.get_agents_of_type(Firm1))
+        if len(firm1_agents) > 0:
+            return np.mean([f.p1 for f in firm1_agents])
         return 1.0
     
     def get_avg_price_sector2(self) -> float:
-        if len(self.schedule_firm2.agents) > 0:
-            return np.mean([f.p2 for f in self.schedule_firm2.agents])
+        firm2_agents = list(self.get_agents_of_type(Firm2))
+        if len(firm2_agents) > 0:
+            return np.mean([f.p2 for f in firm2_agents])
         return 1.0
     
     def get_avg_unit_cost_sector2(self) -> float:
-        if len(self.schedule_firm2.agents) > 0:
-            return np.mean([f.c2 for f in self.schedule_firm2.agents if f.c2 > 0])
+        firm2_agents = list(self.get_agents_of_type(Firm2))
+        if len(firm2_agents) > 0:
+            return np.mean([f.c2 for f in firm2_agents if f.c2 > 0])
         return 1.0
     
     def get_avg_profit_sector2(self) -> float:
-        if len(self.schedule_firm2.agents) > 0:
-            return np.mean([f.Pi for f in self.schedule_firm2.agents])
+        firm2_agents = list(self.get_agents_of_type(Firm2))
+        if len(firm2_agents) > 0:
+            return np.mean([f.Pi for f in firm2_agents])
         return 0.0

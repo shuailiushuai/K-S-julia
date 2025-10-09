@@ -15,10 +15,13 @@ References:
 
 import mesa
 import numpy as np
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from enum import IntEnum
 import random
+
+if TYPE_CHECKING:
+    from agents_extended import Firm2
 
 
 # ============================================================================
@@ -113,10 +116,11 @@ class Worker(mesa.Agent):
     """
     
     def __init__(self, unique_id: int, model: 'KSModel'):
-        super().__init__(unique_id, model)
+        super().__init__(model)
         
         # Identity
         self.ID = unique_id
+        self.unique_id = unique_id
         
         # Employment
         self.employed = 0  # 0=unemployed, 1=sector1, 2=sector2
@@ -202,8 +206,11 @@ class Worker(mesa.Agent):
     
     def select_firms_for_application(self, num_apps: int) -> List['Firm']:
         """Select firms proportional to their workforce size"""
+        # Import here to avoid circular import
+        from agents_extended import Firm2
+        
         # Combine sector 1 and sector 2 firms
-        all_firms = self.model.schedule_firm1.agents + self.model.schedule_firm2.agents
+        all_firms = list(self.model.get_agents_of_type(Firm1)) + list(self.model.get_agents_of_type(Firm2))
         
         if len(all_firms) == 0:
             return []
@@ -299,10 +306,11 @@ class Firm(mesa.Agent):
     """Base class for firms"""
     
     def __init__(self, unique_id: int, model: 'KSModel'):
-        super().__init__(unique_id, model)
+        super().__init__(model)
         
         # Identity
         self.ID = unique_id
+        self.unique_id = unique_id
         self.postChg = False  # Post-regime-change type
         self.life_cycle = 0  # Age in periods
         
@@ -493,19 +501,20 @@ class Firm1(Firm):
         
         # IMITATION
         prob_imi = 1 - np.exp(-self.model.zeta2 * (1 - self.model.xi) * L1rdN)
-        if self.random.random() < prob_imi and len(self.model.schedule_firm1.agents) > 1:
+        firm1_agents = list(self.model.get_agents_of_type(Firm1))
+        if self.random.random() < prob_imi and len(firm1_agents) > 1:
             # Calculate distances to other firms
             p1avg = self.model.get_avg_price_sector1()
             c2avg = self.model.get_avg_unit_cost_sector2()
             
-            other_firms = [f for f in self.model.schedule_firm1.agents if f != self]
+            other_firms = [f for f in firm1_agents if f != self]
             distances = []
             
             for other_firm in other_firms:
                 p_other = (1 + self.model.mu1) * w1avg / other_firm.Btau / self.model.m1
                 c_other = w2avg / other_firm.Atau
                 
-                dist = np.sqrt(((p_other - pTau) / max(p1avg, 0.01))**2 + 
+                dist = np.sqrt(((p_other - pTau) / max(p1avg, 0.01))**2 +
                               ((c_other - cTau) / max(c2avg, 0.01))**2)
                 distances.append((other_firm, 1 / max(dist, 0.001)))
             
@@ -543,12 +552,16 @@ class Firm1(Firm):
     
     def receive_orders(self):
         """Receive orders from clients and acquire new clients"""
+        # Import here to avoid circular import
+        from agents_extended import Firm2
+        
         # Sum orders from existing clients
         self.D1 = sum(client.machine_order for client in self.clients if client.machine_order > 0)
         
         # Try to acquire new clients
-        num_new = int(self.model.gamma * len(self.model.schedule_firm2.agents))
-        potential_clients = [f for f in self.model.schedule_firm2.agents if f not in self.clients]
+        firm2_agents = list(self.model.get_agents_of_type(Firm2))
+        num_new = int(self.model.gamma * len(firm2_agents))
+        potential_clients = [f for f in firm2_agents if f not in self.clients]
         
         if len(potential_clients) > 0:
             new_clients = self.random.sample(potential_clients, min(num_new, len(potential_clients)))

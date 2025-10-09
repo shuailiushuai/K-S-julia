@@ -94,8 +94,11 @@ class Firm2(Firm):
         """Select best supplier based on payback period"""
         if len(self.brochures) == 0:
             # Keep current supplier or select random
-            if self.supplier is None and len(self.model.schedule_firm1.agents) > 0:
-                self.supplier = self.random.choice(self.model.schedule_firm1.agents)
+            # Import here to avoid circular import
+            from agents import Firm1
+            firm1_agents = list(self.model.get_agents_of_type(Firm1))
+            if self.supplier is None and len(firm1_agents) > 0:
+                self.supplier = self.random.choice(firm1_agents)
             return
         
         w2avg = self.model.get_sector2_avg_wage()
@@ -462,10 +465,11 @@ class Bank(mesa.Agent):
     """
     
     def __init__(self, unique_id: int, model: 'KSModel'):
-        super().__init__(unique_id, model)
+        super().__init__(model)
         
         # Identity
         self.ID = unique_id
+        self.unique_id = unique_id
         
         # Balance sheet
         self.NWb = 0.0  # Net worth
