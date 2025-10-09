@@ -79,7 +79,16 @@ function labor_market_matching!(model)
         end
         
         firm = model[fid]
-        n_needed = Int(ceil(firm.L1d - firm.L1))
+        
+        # Safety: ensure L1d is finite before computing n_needed
+        if !isfinite(firm.L1d)
+            firm.L1d = 0.0
+        end
+        if !isfinite(firm.L1)
+            firm.L1 = 0
+        end
+        
+        n_needed = Int(ceil(max(0.0, firm.L1d - firm.L1)))
         
         if n_needed > 0
             # Filter applications to only those still available
@@ -106,7 +115,16 @@ function labor_market_matching!(model)
         end
         
         firm = model[fid]
-        n_needed = Int(ceil(firm.L2d - firm.L2))
+        
+        # Safety: ensure L2d is finite before computing n_needed
+        if !isfinite(firm.L2d)
+            firm.L2d = 0.0
+        end
+        if !isfinite(firm.L2)
+            firm.L2 = 0
+        end
+        
+        n_needed = Int(ceil(max(0.0, firm.L2d - firm.L2)))
         
         if n_needed > 0
             # Filter applications to only those still available
