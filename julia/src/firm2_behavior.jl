@@ -16,7 +16,7 @@ function firm2_form_expectations!(firm::Firm2, model)
     
     # Entrant with limited history uses optimistic expectations
     if firm.age < 3
-        firm.D2e = max(firm.D2_history[1], firm.D2e)
+        firm.D2e = max(firm.D2_history[1], firm.D2e, 0.01)  # Minimum floor
         return
     end
     
@@ -72,8 +72,8 @@ function firm2_form_expectations!(firm::Firm2, model)
         firm.D2e = demand_mix[1]
     end
     
-    # Ensure non-negative and not less than last period
-    firm.D2e = max(firm.D2e, demand_mix[1], 0.0)
+    # Ensure non-negative and not less than last period, with minimum floor
+    firm.D2e = max(firm.D2e, demand_mix[1], 0.01)  # Minimum floor to prevent 0 demand
 end
 
 """
@@ -91,8 +91,8 @@ function firm2_plan_production!(firm::Firm2, model)
     A_avg = firm2_average_productivity(firm)
     Q_capacity = firm.K * params.u * A_avg
     
-    # Planned production
-    firm.Q2 = min(Q_desired, Q_capacity)
+    # Planned production (with minimum floor)
+    firm.Q2 = max(min(Q_desired, Q_capacity), 0.01)  # Minimum floor
 end
 
 """
@@ -317,7 +317,12 @@ function firm2_set_price!(firm::Firm2, model)
     params = model.params
     
     # Unit cost
-    firm.c2 = firm.w2 / firm2_average_productivity(firm)
+    A_avg = firm2_average_productivity(firm)
+    if A_avg > 0
+        firm.c2 = firm.w2 / A_avg
+    else
+        firm.c2 = firm.w2 / 1.0  # Fallback
+    end
     
     # Adjust markup based on market share change
     if firm.age > 0
@@ -332,8 +337,8 @@ function firm2_set_price!(firm::Firm2, model)
         firm.mu2 = clamp(firm.mu2 + markup_change, 0.0, 1.0)
     end
     
-    # Price
-    firm.p2 = (1 + firm.mu2) * firm.c2
+    # Price (ensure positive)
+    firm.p2 = max((1 + firm.mu2) * firm.c2, 0.01)  # Minimum price floor
 end
 
 """
@@ -349,10 +354,10 @@ function firm2_compute_labor_demand!(firm::Firm2, model)
     if A_avg > 0
         L_needed = firm.Q2 / A_avg
         
-        # Desired labor (rounded up)
-        firm.L2d = ceil(L_needed)
+        # Desired labor (rounded up, with minimum of 1)
+        firm.L2d = max(ceil(L_needed), 1.0)  # At least 1 worker
     else
-        firm.L2d = 0.0
+        firm.L2d = 1.0  # Minimum constraint even if no productivity
     end
 end
 

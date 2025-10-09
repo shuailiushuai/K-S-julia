@@ -18,7 +18,12 @@ function firm1_innovate!(firm::Firm1, model)
     # Normalized R&D workers from PREVIOUS period (lagged)
     # This matches C model: VL("_L1rd", 1)
     # firm.L1rd was set at end of previous period's production
-    L1rdN = firm.L1rd * params.Ls0 / model.Ls
+    # Safety check: avoid division by zero if Ls is 0
+    if model.Ls > 0
+        L1rdN = firm.L1rd * params.Ls0 / model.Ls
+    else
+        L1rdN = firm.L1rd * params.Ls0 / params.Ls0  # Fallback to no normalization
+    end
     
     # Innovation success probability
     prob_inn = 1 - exp(-params.zeta1 * params.xi * L1rdN)
@@ -60,7 +65,12 @@ function firm1_imitate!(firm::Firm1, model)
     
     # Normalized R&D workers from PREVIOUS period (lagged)
     # This matches C model: VL("_L1rd", 1)
-    L1rdN = firm.L1rd * params.Ls0 / model.Ls
+    # Safety check: avoid division by zero if Ls is 0
+    if model.Ls > 0
+        L1rdN = firm.L1rd * params.Ls0 / model.Ls
+    else
+        L1rdN = firm.L1rd * params.Ls0 / params.Ls0  # Fallback to no normalization
+    end
     
     # Imitation success probability
     prob_imi = 1 - exp(-params.zeta2 * (1 - params.xi) * L1rdN)
@@ -218,10 +228,15 @@ function firm1_set_price!(firm::Firm1, model)
     params = model.params
     
     # Unit cost (wage / productivity / modularity)
-    firm.c1 = firm.w1 / firm.B / params.m1
+    # Safety: ensure positive denominator
+    if firm.B > 0 && params.m1 > 0
+        firm.c1 = firm.w1 / firm.B / params.m1
+    else
+        firm.c1 = firm.w1 / 0.1  # Fallback cost
+    end
     
-    # Price with fixed markup
-    firm.p1 = (1 + params.mu1) * firm.c1
+    # Price with fixed markup (ensure positive)
+    firm.p1 = max((1 + params.mu1) * firm.c1, 0.01)  # Minimum price floor
 end
 
 """
@@ -237,7 +252,7 @@ function firm1_compute_labor_demand!(firm::Firm1, model)
     # Production labor needed for planned production Q1
     # Matches C model: ceil( V("_Q1") / ( V("_Btau") * VS(PARENT, "m1") ) )
     if firm.B > 0 && params.m1 > 0
-        L_prod = ceil(firm.Q1 / (params.m1 * firm.B))
+        L_prod = max(ceil(firm.Q1 / (params.m1 * firm.B)), 0.0)
     else
         L_prod = 0.0
     end
@@ -249,7 +264,8 @@ function firm1_compute_labor_demand!(firm::Firm1, model)
     
     # Total desired labor (no theta buffer - C model doesn't have it)
     # Matches C model: V("_L1dRD") + ceil(V("_Q1") / (V("_Btau") * VS(PARENT, "m1")))
-    firm.L1d = L_rd + L_prod
+    # With minimum constraint to ensure firm tries to hire
+    firm.L1d = max(L_rd + L_prod, 1.0)  # At least 1 worker
 end
 
 """

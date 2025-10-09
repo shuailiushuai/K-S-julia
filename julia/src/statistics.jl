@@ -45,7 +45,9 @@ function compute_aggregates!(model)
     
     # GDP
     model.GDPnom = model.C + model.I + model.G
-    model.GDPreal = model.Q2 * model.p2avg / model.CPI_history[1]  # Deflated by initial CPI
+    # Safety check for deflator
+    deflator = max(model.CPI_history[1], 0.01)  # Prevent division by zero
+    model.GDPreal = model.Q2 * model.p2avg / deflator
     model.GDP = model.GDPreal
     
     # Dividends
