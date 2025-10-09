@@ -45,8 +45,12 @@ function compute_aggregates!(model)
     
     # GDP
     model.GDPnom = model.C + model.I + model.G
-    # Safety check for deflator
-    deflator = max(model.CPI_history[1], 0.01)  # Prevent division by zero
+    # Safety check for deflator (use most recent CPI, not oldest)
+    if !isempty(model.CPI_history)
+        deflator = max(model.CPI_history[end], 0.01)  # Use most recent CPI
+    else
+        deflator = max(model.CPI, 0.01)
+    end
     model.GDPreal = model.Q2 * model.p2avg / deflator
     model.GDP = model.GDPreal
     
