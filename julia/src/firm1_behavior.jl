@@ -123,9 +123,13 @@ end
     firm1_rd!(firm::Firm1, model)
 
 Execute R&D for capital-good firm (both innovation and imitation).
+CRITICAL: This function uses L1rd from PREVIOUS period (lagged),
+which was set at the END of the previous time step after labor allocation.
 """
 function firm1_rd!(firm::Firm1, model)
-    # Try innovation first, then imitation
+    # Innovation and imitation use firm.L1rd which contains
+    # the ACTUAL R&D workers hired in the PREVIOUS period
+    # This is correct - it matches C model: VL("_L1rd", 1)
     innovated = firm1_innovate!(firm, model)
     if !innovated
         firm1_imitate!(firm, model)
@@ -151,30 +155,40 @@ end
 
 Execute production for capital-good firm.
 Adjusts planned production (Q1) to effective production (Q1e) based on actual labor hired.
+CRITICAL: Sets L1rd at END of period for use in NEXT period's innovation.
 """
 function firm1_produce!(firm::Firm1, model)
     params = model.params
     
-    # Calculate actual R&D workers hired this period
-    # This will be used for innovation in the NEXT period
+    # Check if we got all desired workers
     if firm.L1 >= firm.L1d || firm.L1d <= 0
         # Got all desired workers (or no demand)
-        L_rd_actual = firm.L1dRD
+        # Produce as planned
         firm.Q1e = firm.Q1
+        # All desired R&D workers hired
+        L_rd_actual = firm.L1dRD
     else
-        # Labor constrained - allocate workers proportionally
-        # Account for R&D workers separately
+        # Labor constrained - need to adjust production
+        # Matches C model logic in _Q1e equation
+        
+        # Calculate adjustment factor for production
+        # C model: v[5] = v[2] > v[4] ? 1 - (v[1] - v[3]) / (v[2] - v[4]) : 1
+        # where v[1]=L1, v[2]=L1d, v[3]=L1rd, v[4]=L1dRD
+        
         L_prod_desired = max(0.0, firm.L1d - firm.L1dRD)
         
-        # Calculate actual R&D workers
-        # Allocate R&D workers proportionally to total workers
-        if firm.L1d > 0
+        # Allocate R&D workers first (proportionally if needed)
+        if firm.L1d > 0 && firm.L1dRD > 0
+            # R&D workers get proportional share
             L_rd_actual = min(firm.L1dRD, firm.L1 * firm.L1dRD / firm.L1d)
         else
             L_rd_actual = 0.0
         end
+        
+        # Remaining workers go to production
         L_prod_actual = max(0.0, firm.L1 - L_rd_actual)
         
+        # Adjust production based on available production workers
         if L_prod_desired > 0
             adjustment_factor = L_prod_actual / L_prod_desired
             firm.Q1e = max(0.0, firm.Q1 * adjustment_factor)
@@ -183,11 +197,12 @@ function firm1_produce!(firm::Firm1, model)
         end
     end
     
-    # Save actual R&D workers for next period's innovation calculation
+    # CRITICAL: Save actual R&D workers for NEXT period's innovation calculation
     # This matches C model: VL("_L1rd", 1) in _Atau equation
+    # Innovation at time t+1 will use this value (lagged)
     firm.L1rd = L_rd_actual
     
-    # Sales are minimum of available output and demand
+    # Sales are minimum of available output (production + inventory) and demand
     firm.S1 = min(firm.Q1e + firm.N1, firm.D1)
     
     # Update inventories
@@ -213,48 +228,65 @@ end
     firm1_compute_labor_demand!(firm::Firm1, model)
 
 Compute desired labor for production and R&D.
+CRITICAL: This matches C model's _L1d and _L1dRD equations.
+R&D is computed BEFORE this using S1_prev in the scheduling sequence.
 """
 function firm1_compute_labor_demand!(firm::Firm1, model)
     params = model.params
     
     # Production labor needed for planned production Q1
-    # Divide by B (productivity) and m1 (worker output per period)
+    # Matches C model: ceil( V("_Q1") / ( V("_Btau") * VS(PARENT, "m1") ) )
     if firm.B > 0 && params.m1 > 0
-        L_prod = firm.Q1 / (params.m1 * firm.B)
+        L_prod = ceil(firm.Q1 / (params.m1 * firm.B))
     else
         L_prod = 0.0
     end
     
+    # R&D workers needed (computed from R&D expenditure)
+    # This is already computed in compute_rd_expenditure! and stored in L1dRD
+    # We just use it here
+    L_rd = firm.L1dRD
+    
+    # Total desired labor (no theta buffer - C model doesn't have it)
+    # Matches C model: V("_L1dRD") + ceil(V("_Q1") / (V("_Btau") * VS(PARENT, "m1")))
+    firm.L1d = L_rd + L_prod
+end
+
+"""
+    firm1_compute_rd_expenditure!(firm::Firm1, model)
+
+Compute R&D expenditure and desired R&D workers.
+CRITICAL: This must be called BEFORE labor demand calculation.
+Matches C model's _RD equation which uses VL("_S1", 1).
+"""
+function firm1_compute_rd_expenditure!(firm::Firm1, model)
+    params = model.params
+    
     # R&D expenditure based on PREVIOUS period's sales (lagged)
-    # If no previous sales, use a fraction of net worth (like C model)
+    # Matches C model: v[1] = VL("_S1", 1); v[0] = v[2] * v[1]
     if firm.S1_prev > 0
         # Use previous period's sales
         RD = params.nu * firm.S1_prev
     else
-        # Use net worth as basis (fallback for initialization)
+        # Fallback: use net worth if no previous sales
+        # Matches C model: min(CURRENT, v[2] * VL("_NW1", 1))
         RD = params.nu * firm.NW1
     end
     
     # Always hire at least one worker's worth of R&D (minimum constraint)
+    # Matches C model: max(v[0], VLS(PARENT, "w1avg", 1))
     RD = max(RD, firm.w1)
     
     # Convert R&D expenditure to workers
+    # Matches C model: ceil(V("_RD") / VLS(PARENT, "w1avg", 1))
     if firm.w1 > 0
         L_rd = ceil(RD / firm.w1)
     else
-        L_rd = 0.0
+        L_rd = 1.0  # At least 1 worker
     end
     
-    # Cap R&D workers at maximum fraction
-    if L_prod > 0
-        L_rd = min(L_rd, params.L1rdMax * L_prod)
-    end
-    
-    # Store desired R&D workers (separate from actual L1rd which is lagged)
+    # Store desired R&D workers for use in labor demand calculation
     firm.L1dRD = L_rd
-    
-    # Total desired labor
-    firm.L1d = L_prod + L_rd
 end
 
 """
