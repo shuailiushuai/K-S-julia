@@ -1,0 +1,44 @@
+============================================================
+K+S AGENT-BASED MACROECONOMIC MODEL
+Python/Mesa 3.0 Implementation
+============================================================
+Initializing K+S model...
+Running simulation for 100 steps...
+Step 10/100 - GDP: 868.17, Unemployment: 2.90%
+Step 20/100 - GDP: 755.30, Unemployment: 4.70%
+Step 30/100 - GDP: 700.70, Unemployment: 3.60%
+Step 40/100 - GDP: 673.40, Unemployment: 0.60%
+Step 50/100 - GDP: 591.50, Unemployment: 18.90%
+Step 60/100 - GDP: 329.03, Unemployment: 69.90%
+Step 70/100 - GDP: 134.45, Unemployment: 90.10%
+Step 80/100 - GDP: 36.40, Unemployment: 99.40%
+Step 90/100 - GDP: 604.05, Unemployment: 1.10%
+Step 100/100 - GDP: 436.80, Unemployment: 13.10%
+Simulation complete!
+
+============================================================
+SIMULATION SUMMARY STATISTICS
+============================================================
+
+Macroeconomic Indicators:
+  Average GDP:              540.17
+  GDP Growth (total):   43580.00%
+  Average Unemployment:     28.75%
+  Average Inflation:         1.26%
+  Average Wages:              1.00
+
+Firm Demographics:
+  Average Firm1 Count:        19.0
+  Average Firm2 Count:        96.1
+  Firm1 Volatility:            0.0
+  Firm2 Volatility:            3.1
+
+Financial Indicators:
+  Average Interest Rate:     9.00%
+  Final Public Debt:       5782.04
+============================================================
+
+Figure saved to ks_results.png
+Results exported to ks_results.csv
+
+Simulation complete! Check the output files.

@@ -245,7 +245,7 @@ class KSModel(mesa.Model):
         self.phi = phi
         self.w0min = w0min
         self.wMinPol = w0min
-        self.wU = phi * w0min
+        self.wU = phi * w0min  # Unemployment benefit based on MINIMUM wage
         self.wAvg = w0min
         self.psi1 = psi1
         self.psi2 = psi2
@@ -372,6 +372,7 @@ class KSModel(mesa.Model):
             firm1_list.append(firm1)
         
         # Create firm2 (consumption-good sector)
+        firm2_list = []
         for i in range(self.F20):
             firm2 = Firm2(self.F10 + i, self)
             # Assign bank
@@ -380,10 +381,40 @@ class KSModel(mesa.Model):
             # Assign supplier
             firm2.supplier = self.random.choice(firm1_list)
             firm2.supplier.clients.append(firm2)
+            firm2_list.append(firm2)
         
         # Create workers
+        workers = []
         for i in range(self.Ls0):
             worker = Worker(self.F10 + self.F20 + i, self)
+            workers.append(worker)
+        
+        # Initial worker allocation following C++ initialization
+        # Allocate workers to match initial labor demands Ld10 and Ld20
+        # Distribute proportionally among firms
+        
+        # Sector 1: Ld10 total workers needed
+        Ld10_per_firm = int(self.Ld10 / max(self.F10, 1))
+        worker_idx = 0
+        for firm1 in firm1_list:
+            for _ in range(Ld10_per_firm):
+                if worker_idx < len(workers):
+                    worker = workers[worker_idx]
+                    firm1.hire_worker(worker, self.w0min)
+                    worker.employed = 1
+                    worker_idx += 1
+        
+        # Sector 2: Ld20 total workers needed
+        Ld20_per_firm = int(self.Ld20 / max(self.F20, 1))
+        for firm2 in firm2_list:
+            for _ in range(Ld20_per_firm):
+                if worker_idx < len(workers):
+                    worker = workers[worker_idx]
+                    # Assign to first vintage
+                    vintage = firm2.vintages[0] if len(firm2.vintages) > 0 else None
+                    firm2.hire_worker(worker, self.w0min, vintage)
+                    worker.employed = 2
+                    worker_idx += 1
     
     def step(self):
         """Execute one time step"""
@@ -609,11 +640,21 @@ class KSModel(mesa.Model):
     
     def government_expenditure(self):
         """Calculate government expenditure"""
-        # G = unemployment benefits (simplified)
-        # More accurate: include public sector wages if applicable
-        unemployed = [w for w in self.get_agents_of_type(Worker) if not w.employed]
-        # Unemployment benefit = phi * average wage for unemployed workers
-        self.G = self.phi * self.wAvg * len(unemployed)
+        # G = unemployment benefits + training (simplified)
+        # Following C++ equation with flagGovExp < 2 (work-or-die or minimum)
+        unemployed_count = len([w for w in self.get_agents_of_type(Worker) if not w.employed])
+        
+        # Use unemployment benefit rate times minimum wage (not average wage)
+        # This prevents positive feedback loop
+        unemployment_benefits = unemployed_count * self.wU
+        
+        # Training costs (simplified, proportional to unemployed)
+        if hasattr(self, 'Gamma') and hasattr(self, 'tauG'):
+            training_cost = self.Gamma * unemployed_count * self.w0min * 0.1  # Small fraction
+        else:
+            training_cost = 0
+        
+        self.G = unemployment_benefits + training_cost
     
     def government_finances(self):
         """Calculate government finances"""
@@ -656,6 +697,8 @@ class KSModel(mesa.Model):
     
     def process_exits(self):
         """Remove firms that meet exit conditions"""
+        from agents_extended import Firm2
+        
         # Firm1 exits
         exiting_firm1 = [f for f in self.get_agents_of_type(Firm1) if f.exit_condition()]
         for firm1 in exiting_firm1:
@@ -668,7 +711,6 @@ class KSModel(mesa.Model):
                 firm1.bank.add_bad_debt(firm1.Deb)
             
             # Remove from clients
-            from agents_extended import Firm2
             for firm2 in self.get_agents_of_type(Firm2):
                 if firm2.supplier == firm1:
                     # Reassign to random supplier
@@ -746,10 +788,12 @@ class KSModel(mesa.Model):
         
         # Create entrant Firm1
         banks = list(self.get_agents_of_type(Bank))
+        # Get max existing ID to avoid conflicts
+        max_id = max([a.unique_id for a in self.agents], default=0)
+        
         for i in range(num_entries1):
-            # Get new ID
-            new_id = self.next_id()
-            firm1 = Firm1(new_id, self)
+            max_id += 1
+            firm1 = Firm1(max_id, self)
             # Assign bank
             firm1.bank = self.random.choice(banks) if len(banks) > 0 else None
             if firm1.bank:
@@ -758,9 +802,8 @@ class KSModel(mesa.Model):
         # Create entrant Firm2
         firm1_list = list(self.get_agents_of_type(Firm1))
         for i in range(num_entries2):
-            # Get new ID
-            new_id = self.next_id()
-            firm2 = Firm2(new_id, self)
+            max_id += 1
+            firm2 = Firm2(max_id, self)
             # Assign bank
             firm2.bank = self.random.choice(banks) if len(banks) > 0 else None
             if firm2.bank:
@@ -786,7 +829,8 @@ class KSModel(mesa.Model):
         employed_workers = [w for w in self.get_agents_of_type(Worker) if w.employed]
         if len(employed_workers) > 0:
             self.wAvg = np.mean([w.w for w in employed_workers])
-            self.wU = self.phi * self.wAvg
+            # wU should stay based on minimum wage to prevent feedback loop
+            # self.wU = self.phi * self.wAvg  # DON'T update wU dynamically
         
         # Consumption (nominal and real)
         # C = total sales of consumption goods

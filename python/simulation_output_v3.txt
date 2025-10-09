@@ -1,0 +1,23 @@
+============================================================
+K+S AGENT-BASED MACROECONOMIC MODEL
+Python/Mesa 3.0 Implementation
+============================================================
+Initializing K+S model...
+Running simulation for 100 steps...
+Step 10/100 - GDP: 874.37, Unemployment: 0.70%
+Traceback (most recent call last):
+  File "/home/runner/work/K-S-julia/K-S-julia/python/run_simulation.py", line 187, in <module>
+    main()
+  File "/home/runner/work/K-S-julia/K-S-julia/python/run_simulation.py", line 172, in main
+    model = run_simulation(steps=steps, **model_params)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/K-S-julia/K-S-julia/python/run_simulation.py", line 23, in run_simulation
+    model.step()
+  File "/home/runner/.local/lib/python3.12/site-packages/mesa/model.py", line 122, in _wrapped_step
+    self._user_step(*args, **kwargs)
+  File "/home/runner/work/K-S-julia/K-S-julia/python/model.py", line 491, in step
+    self.process_entries()
+  File "/home/runner/work/K-S-julia/K-S-julia/python/model.py", line 763, in process_entries
+    new_id = self.next_id()
+             ^^^^^^^^^^^^
+AttributeError: 'KSModel' object has no attribute 'next_id'
