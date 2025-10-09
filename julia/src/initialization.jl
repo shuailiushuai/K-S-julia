@@ -312,7 +312,8 @@ function initialize_firm2!(model)
             D2d = D20,
             D2_history = fill(D20, 4),  # Initialize history with steady-state demand
             f2 = 1.0 / params.F20,  # Fair initial market share
-            competitiveness = 1.0
+            competitiveness = 1.0,
+            life2cycle = 1  # CRITICAL: Start as operating entrant (has capital)
         )
         
         # Initialize vintage with initial technology

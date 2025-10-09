@@ -179,6 +179,7 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     supplier_id::Int = 0
     postChg::Bool = false
     age::Int = 0
+    life2cycle::Int = 0  # Lifecycle stage: 0=pre-op entrant, 1-2.x=op entrant, 3=incumbent, 4=exiting
     exit_flag::Bool = false
     worker_ids::Vector{Int} = Int[]
     applications::Vector{Int} = Int[]

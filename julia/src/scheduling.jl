@@ -53,6 +53,28 @@ function agent_step!(agent::Firm2, model)
     # Age firm
     agent.age += 1
     
+    # Update lifecycle stage (matches C model _life2cycle equation)
+    # 0 = pre-operational entrant (no capital)
+    # 1 = operating entrant (first period producing, has capital)
+    # 2.x = operating entrant (2nd-4th period producing)
+    # 3 = incumbent firm (5+ periods)
+    # 4 = exiting firm
+    if agent.exit_flag
+        agent.life2cycle = 4
+    elseif agent.life2cycle == 0
+        # Pre-operational entrant - check if now has capital
+        if agent.K > 0
+            agent.life2cycle = 1  # Becomes operating entrant
+        end
+    elseif agent.life2cycle >= 1 && agent.life2cycle < 3
+        # Operating entrant - advance lifecycle
+        if agent.age >= 4
+            agent.life2cycle = 3  # Becomes incumbent
+        else
+            agent.life2cycle = 1 + min(agent.age - 1, 2) * 0.1  # 1.0, 1.1, 1.2, 1.3, then 3
+        end
+    end
+    
     # Store previous net worth for firing decisions
     agent.NW2_prev = agent.NW2
     
@@ -622,7 +644,8 @@ function create_entrant_firm2!(model)
         N2 = 0.0,
         N2_prev = 0.0,  # Initialize prev inventory
         supplier_id = rand(Agents.abmrng(model), model.firm1_ids),
-        D2_history = fill(0.0, 4)
+        D2_history = fill(0.0, 4),
+        life2cycle = 1  # Operating entrant (has capital)
     )
     
     # Initial vintage
