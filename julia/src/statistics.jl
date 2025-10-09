@@ -33,6 +33,18 @@ function compute_aggregates!(model)
     model.S2 = sum(model[fid].S2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
     model.D2 = sum(model[fid].D2 for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
     
+    # CRITICAL FIX: Consumption equals actual sales revenue from sector 2
+    # This matches C model: C = S2
+    model.C = model.S2
+    
+    # Recalculate savings based on actual consumption vs desired
+    # Sav = Cd - C (forced savings when supply < demand)
+    if model.Cd > model.C
+        model.Sav = model.Cd - model.C
+    else
+        model.Sav = 0.0
+    end
+    
     # Average productivity sector 2
     if !isempty(model.firm2_ids)
         total_k = sum(model[fid].K for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
