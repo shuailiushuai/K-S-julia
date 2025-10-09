@@ -68,8 +68,9 @@ class Firm2(Firm):
         self.Deb = self.NW * debt_ratio / (1 - debt_ratio) if debt_ratio < 1 else 0
         self.f = 1.0 / max(self.model.F20, 1)
         
-        # Initialize with some capital
-        self.K = 10  # Initial machines
+        # Initialize with capital based on K0 and firm count
+        # Each firm gets approximately equal share of initial capital
+        self.K = int(self.model.K0 / self.model.F20)
         initial_vintage = Vintage(
             IDvint=10000,
             t0=0,
@@ -79,7 +80,9 @@ class Firm2(Firm):
         )
         self.vintages.append(initial_vintage)
         
-        self.p2 = (1 + self.mu2) * self.model.w0min / self.A2
+        # Use correct initial price
+        self.c2 = self.model.c20
+        self.p2 = self.model.p20
     
     def receive_brochure(self, supplier: Firm1):
         """Receive machine brochure from supplier"""

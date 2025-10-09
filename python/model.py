@@ -28,6 +28,7 @@ class KSModel(mesa.Model):
     def __init__(self,
                  # Country parameters
                  tr=0.2,  # Tax rate
+                 flagTax=1,  # Tax mode (0=no tax, 1=on profits, 2=+dividends)
                  TregChg=0,  # Regime change time (0=no change)
                  gG=0.02,  # Government expenditure growth
                  mPer=4,  # Moving average periods
@@ -149,6 +150,7 @@ class KSModel(mesa.Model):
         
         # Store all parameters
         self.tr = tr
+        self.flagTax = flagTax
         self.TregChg = TregChg
         self.gG = gG
         self.mPer = mPer
@@ -271,22 +273,62 @@ class KSModel(mesa.Model):
         self.flagWorkerLBU = flagWorkerLBU
         self.flagWorkerSkProd = flagWorkerSkProd
         
-        # Initial values
-        self.initial_productivity = 1.0
-        self.initial_skill = 1.0
+        # Initial values - Calculate properly based on C++ initialization
+        # From fun_KS_country.h lines 477-491
+        self.initial_skill = 1.0  # INISKILL
+        INIPROD = 1.0  # Initial notional machine productivity
+        INIWAGE = 1.0  # Initial notional wage
+        
+        # Calculate initial productivity for sector 1 (capital goods)
+        # Btau0 = (1 + mu1) * INIPROD / (m1 * m2 * b)
+        self.Btau0 = (1 + mu1) * INIPROD / (m1 * m2 * b)
+        self.initial_productivity = INIPROD
+        
+        # Calculate initial costs and prices
+        self.c10 = INIWAGE / (self.Btau0 * m1)  # initial cost sector 1
+        self.c20 = INIWAGE / INIPROD  # initial cost sector 2  
+        self.p10 = (1 + mu1) * self.c10  # initial price sector 1
+        self.p20 = (1 + mu20) * self.c20  # initial price sector 2
+        
+        # Calculate initial demands based on circular flow
+        trW = tr if tr > 0 else 0  # tax rate on wages
+        self.K0 = Ls0 * INIWAGE / self.p20  # full employment capital required
+        self.D10 = self.K0 / (m2 * eta)  # initial demand for sector 1
+        self.RD0 = nu * self.D10 * self.p10  # initial R&D expense
+        # Circular flow equation for initial consumption demand
+        self.D20 = ((self.D10 * self.c10 + self.RD0) * (1 - phi - trW) + 
+                    Ls0 * INIWAGE * phi) / (mu20 + phi + trW) * self.c20
+        
+        # Initial labor demands
+        self.Ld10 = self.RD0 / INIWAGE + self.D10 / (self.Btau0 * m1)
+        self.Ld20 = self.D20 / INIPROD
+        
+        # Initial aggregate productivity
+        self.A0 = (self.D10 * self.p10 + self.D20 * self.p20) / (self.Ld10 + self.Ld20)
+        
+        # Store initial prices for real calculations
+        self.pK0 = self.p10  # Initial capital goods price
+        self.pC0 = self.p20  # Initial consumption goods price
         
         # Macro statistics
         self.GDPreal = 0.0
         self.GDPnom = 0.0
         self.Ue = 0.0  # Unemployment rate
-        self.CPI = 1.0
+        self.CPI = self.p20  # Initialize CPI at initial price level
         self.dCPI = 0.0
         self.SavAcc = 0.0  # Accumulated savings
         self.Sav = 0.0  # Current savings
         self.Tax = 0.0  # Total taxes
-        self.G = 0.0  # Government expenditure
+        self.G = self.gG * Ls0  # Initial government expenditure
         self.Def = 0.0  # Deficit
         self.Deb = 0.0  # Public debt
+        
+        # Investment and inventory tracking
+        self.Ireal = 0.0  # Real investment
+        self.Inom = 0.0  # Nominal investment
+        self.dNnom = 0.0  # Nominal inventory change
+        self.Creal = 0.0  # Real consumption
+        self.C = 0.0  # Nominal consumption
         
         # Data collector
         self.datacollector = mesa.DataCollector(
@@ -467,8 +509,18 @@ class KSModel(mesa.Model):
         pi_gap = self.dCPI - self.piT
         U_gap = self.Ue - self.Ut
         
-        r_new = self.r + self.gammaPi * pi_gap + self.gammaU * U_gap
-        r_new = max(r_new, 0.001)  # Floor
+        # Taylor rule: r_new = r_natural + gammaPi * pi_gap + gammaU * U_gap
+        # More conservative adjustment to avoid runaway interest rates
+        adjustment = self.gammaPi * pi_gap + self.gammaU * U_gap
+        
+        # Limit adjustment magnitude to prevent instability
+        max_adjustment = 0.01  # Maximum 1 percentage point change per period
+        adjustment = np.clip(adjustment, -max_adjustment, max_adjustment)
+        
+        r_new = self.r + adjustment
+        
+        # Floor and ceiling for interest rate
+        r_new = np.clip(r_new, 0.001, 0.20)  # Between 0.1% and 20%
         
         self.r = r_new
         self.rDeb = self.r * (1 + self.muDeb)
@@ -477,8 +529,39 @@ class KSModel(mesa.Model):
     
     def match_consumption_market(self):
         """Match consumption demand with supply"""
-        # Total consumption demand from workers
-        Cd = sum(worker.get_income() for worker in self.get_agents_of_type(Worker))
+        # Total consumption demand from workers following C++ Cd equation
+        # Cd = W + G + Bon(-1) - TaxW + Div(-1) - TaxDiv + SavAcc adjustments
+        
+        # Current period wages and unemployment benefits
+        W = sum(w.w for w in self.get_agents_of_type(Worker) if w.employed)
+        G = self.G  # Unemployment benefits
+        
+        # Past period bonuses (stored from previous period)
+        Bon_prev = getattr(self, 'Bon_prev', 0)
+        
+        # Past period dividends
+        Div_prev = getattr(self, 'Div_prev', 0)
+        
+        # Taxes
+        TaxW = getattr(self, 'TaxW', 0)
+        TaxDiv = getattr(self, 'TaxDiv', 0)
+        
+        # Base consumption demand
+        Cd = W + G + Bon_prev - TaxW + Div_prev - TaxDiv
+        
+        # Handle accumulated forced savings (flagCons=2: slow spend)
+        # Recover up to a limit of current consumption
+        if self.SavAcc > 0:
+            max_recover = Cd * self.Crec  # max recover limit
+            if self.SavAcc <= max_recover:
+                Cd += self.SavAcc
+                self.SavAcc = 0
+            else:
+                Cd += max_recover
+                self.SavAcc -= max_recover
+        
+        # Store Cd for statistics
+        self.Cd = Cd
         
         # Allocate demand by market shares
         D2_total = 0
@@ -491,6 +574,15 @@ class KSModel(mesa.Model):
         # Forced savings
         self.Sav = max(Cd - D2_total, 0)
         self.SavAcc += self.Sav
+        
+        # Store values for next period
+        Bon_current = sum(getattr(f, 'Bon2', 0) for f in self.get_agents_of_type(Firm2))
+        self.Bon_prev = Bon_current
+        Div_current = sum(f.Div for f in self.get_agents_of_type(Firm1))
+        Div_current += sum(f.Div for f in self.get_agents_of_type(Firm2))
+        from agents_extended import Bank
+        Div_current += sum(b.DivB for b in self.get_agents_of_type(Bank))
+        self.Div_prev = Div_current
     
     def update_market_shares(self):
         """Update market shares using replicator dynamics"""
@@ -517,21 +609,41 @@ class KSModel(mesa.Model):
     
     def government_expenditure(self):
         """Calculate government expenditure"""
+        # G = unemployment benefits (simplified)
+        # More accurate: include public sector wages if applicable
         unemployed = [w for w in self.get_agents_of_type(Worker) if not w.employed]
-        self.G = self.w0min * len(unemployed)  # Simplified: only unemployment benefits
+        # Unemployment benefit = phi * average wage for unemployed workers
+        self.G = self.phi * self.wAvg * len(unemployed)
     
     def government_finances(self):
         """Calculate government finances"""
-        # Collect taxes
-        self.Tax = sum(f.Tax for f in self.get_agents_of_type(Firm1))
+        # Collect taxes on wages
+        employed_workers = [w for w in self.get_agents_of_type(Worker) if w.employed]
+        self.TaxW = sum(w.w * self.tr for w in employed_workers) if self.tr > 0 else 0
+        
+        # Collect taxes on firm profits
+        self.Tax = self.TaxW
+        self.Tax += sum(f.Tax for f in self.get_agents_of_type(Firm1))
         self.Tax += sum(f.Tax for f in self.get_agents_of_type(Firm2))
+        from agents_extended import Bank
         self.Tax += sum(b.TaxB for b in self.get_agents_of_type(Bank))
         
-        # Deficit
-        self.Def = self.G - self.Tax
+        # Taxes on dividends if flagTax >= 2
+        if hasattr(self, 'flagTax') and self.flagTax >= 2:
+            Div_current = self.Div_prev if hasattr(self, 'Div_prev') else 0
+            self.TaxDiv = Div_current * self.tr
+            self.Tax += self.TaxDiv
+        else:
+            self.TaxDiv = 0
         
-        # Debt
-        self.Deb += self.Def
+        # Primary deficit (positive means spending > taxes)
+        DefP = self.G - self.Tax
+        
+        # Total deficit (including interest payments, simplified for now)
+        self.Def = DefP
+        
+        # Debt accumulation (debt increases with deficits)
+        self.Deb = max(self.Deb + self.Def, 0)  # Debt cannot be negative
     
     def bailout_banks(self):
         """Bailout banks with negative net worth"""
@@ -556,9 +668,16 @@ class KSModel(mesa.Model):
                 firm1.bank.add_bad_debt(firm1.Deb)
             
             # Remove from clients
+            from agents_extended import Firm2
             for firm2 in self.get_agents_of_type(Firm2):
                 if firm2.supplier == firm1:
-                    firm2.supplier = None
+                    # Reassign to random supplier
+                    other_firm1 = [f for f in self.get_agents_of_type(Firm1) if f != firm1]
+                    if len(other_firm1) > 0:
+                        firm2.supplier = self.random.choice(other_firm1)
+                        firm2.supplier.clients.append(firm2)
+                    else:
+                        firm2.supplier = None
             
             firm1.remove()
         
@@ -580,10 +699,76 @@ class KSModel(mesa.Model):
             firm2.remove()
     
     def process_entries(self):
-        """Add new entrant firms"""
-        # Entry logic (simplified)
-        # Would check financial conditions, etc.
-        pass
+        """Add new entrant firms based on profitability and target numbers"""
+        from agents_extended import Firm2, Bank
+        
+        # Entry logic for Firm1
+        firm1_count = len(self.get_agents_of_type(Firm1))
+        if firm1_count < self.F1min:
+            # Below minimum, need entries
+            num_entries1 = self.F1min - firm1_count
+        elif firm1_count > self.F1max:
+            # Above maximum, no entries
+            num_entries1 = 0
+        else:
+            # Check profitability for entry
+            firm1_agents = list(self.get_agents_of_type(Firm1))
+            if len(firm1_agents) > 0:
+                avg_profit1 = np.mean([f.Pi for f in firm1_agents])
+                if avg_profit1 > 0:
+                    # Positive profits encourage entry
+                    num_entries1 = max(0, int(self.omicron * (self.F10 - firm1_count)))
+                else:
+                    num_entries1 = 0
+            else:
+                num_entries1 = max(1, self.F10 - firm1_count)
+        
+        # Entry logic for Firm2
+        firm2_count = len(self.get_agents_of_type(Firm2))
+        if firm2_count < self.F2min:
+            # Below minimum, need entries
+            num_entries2 = self.F2min - firm2_count
+        elif firm2_count > self.F2max:
+            # Above maximum, no entries
+            num_entries2 = 0
+        else:
+            # Check profitability for entry
+            firm2_agents = list(self.get_agents_of_type(Firm2))
+            if len(firm2_agents) > 0:
+                avg_profit2 = np.mean([f.Pi for f in firm2_agents])
+                if avg_profit2 > 0:
+                    # Positive profits encourage entry
+                    num_entries2 = max(0, int(self.omicron * (self.F20 - firm2_count)))
+                else:
+                    num_entries2 = 0
+            else:
+                num_entries2 = max(1, self.F20 - firm2_count)
+        
+        # Create entrant Firm1
+        banks = list(self.get_agents_of_type(Bank))
+        for i in range(num_entries1):
+            # Get new ID
+            new_id = self.next_id()
+            firm1 = Firm1(new_id, self)
+            # Assign bank
+            firm1.bank = self.random.choice(banks) if len(banks) > 0 else None
+            if firm1.bank:
+                firm1.bank.clients1.append(firm1)
+        
+        # Create entrant Firm2
+        firm1_list = list(self.get_agents_of_type(Firm1))
+        for i in range(num_entries2):
+            # Get new ID
+            new_id = self.next_id()
+            firm2 = Firm2(new_id, self)
+            # Assign bank
+            firm2.bank = self.random.choice(banks) if len(banks) > 0 else None
+            if firm2.bank:
+                firm2.bank.clients2.append(firm2)
+            # Assign supplier
+            if len(firm1_list) > 0:
+                firm2.supplier = self.random.choice(firm1_list)
+                firm2.supplier.clients.append(firm2)
     
     def apply_regime_change(self):
         """Apply regime change at specified time"""
@@ -603,20 +788,40 @@ class KSModel(mesa.Model):
             self.wAvg = np.mean([w.w for w in employed_workers])
             self.wU = self.phi * self.wAvg
         
-        # GDP
-        Q1_total = sum(f.Q1e for f in self.get_agents_of_type(Firm1))
+        # Consumption (nominal and real)
+        # C = total sales of consumption goods
+        self.C = sum(f.S for f in self.get_agents_of_type(Firm2))
+        # Creal = consumption in initial prices
         Q2_total = sum(f.Q2e for f in self.get_agents_of_type(Firm2))
-        self.GDPreal = Q1_total + Q2_total
+        self.Creal = Q2_total * self.pC0
         
-        S1_total = sum(f.S for f in self.get_agents_of_type(Firm1))
-        S2_total = sum(f.S for f in self.get_agents_of_type(Firm2))
-        self.GDPnom = S1_total + S2_total
+        # Investment (nominal and real)
+        # Inom = total sales of capital goods
+        self.Inom = sum(f.S for f in self.get_agents_of_type(Firm1))
+        # Ireal = investment in initial prices
+        Q1_total = sum(f.Q1e for f in self.get_agents_of_type(Firm1))
+        self.Ireal = Q1_total * self.pK0
+        
+        # Inventory change (nominal)
+        N_current = sum(f.N for f in self.get_agents_of_type(Firm2))
+        if not hasattr(self, 'N_previous'):
+            self.N_previous = 0
+        self.dNnom = N_current - self.N_previous
+        self.N_previous = N_current
+        
+        # GDP calculation following C++ implementation
+        # GDPreal = max(Ireal + Creal, 1)
+        # GDPnom = max(C + Inom + dNnom, 1)
+        self.GDPreal = max(self.Ireal + self.Creal, 1)
+        self.GDPnom = max(self.C + self.Inom + self.dNnom, 1)
         
         # Prices and inflation
         CPI_new = self.get_avg_price_sector2()
         if self.CPI > 0:
             self.dCPI = (CPI_new - self.CPI) / self.CPI
-        self.CPI = CPI_new
+        else:
+            self.dCPI = 0
+        self.CPI = CPI_new if CPI_new > 0 else self.pC0
     
     # Helper methods
     def get_unemployment_rate(self) -> float:

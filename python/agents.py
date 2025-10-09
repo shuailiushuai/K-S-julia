@@ -434,9 +434,9 @@ class Firm1(Firm):
     def __init__(self, unique_id: int, model: 'KSModel'):
         super().__init__(unique_id, model)
         
-        # Technology
+        # Technology - use model's Btau0 for correct initial productivity
         self.Atau = model.initial_productivity  # Final productivity
-        self.Btau = model.initial_productivity  # Production productivity
+        self.Btau = model.Btau0  # Production productivity (corrected initial value)
         
         # Production
         self.Q1 = 0  # Planned production
@@ -463,7 +463,8 @@ class Firm1(Firm):
         debt_ratio = self.model.Deb10ratio
         self.Deb = self.NW * debt_ratio / (1 - debt_ratio) if debt_ratio < 1 else 0
         self.f = 1.0 / max(self.model.F10, 1)
-        self.p1 = (1 + self.model.mu1) * self.model.w0min / self.Btau / self.model.m1
+        # Use correct initial price calculation
+        self.p1 = self.model.p10
     
     def rd_innovation_imitation(self):
         """Perform R&D: innovation and imitation"""
