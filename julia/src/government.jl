@@ -59,7 +59,12 @@ function compute_government_expenditure!(model)
         if model.t > 1
             G_fixed *= (1 + params.gG)
         else
-            G_fixed = 0.1 * model.GDPnom  # Initial value
+            # CRITICAL FIX: Initialize with baseline value, not 0.1 * GDPnom
+            # At t=1, GDPnom may be 0 or very small, causing G to be 0
+            # Use a fraction of expected initial GDP instead
+            # Expected GDP from full employment: Ls * wAvg * (consumption share)
+            expected_GDP = params.Ls0 * params.w0min * 1.5  # Rough estimate
+            G_fixed = 0.1 * expected_GDP
         end
         props[:G_fixed] = G_fixed
         G += G_fixed

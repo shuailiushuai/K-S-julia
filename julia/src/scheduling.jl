@@ -261,7 +261,15 @@ function model_step!(model)
         for fid in model.firm2_ids
             if Agents.hasid(model, fid)
                 firm = model[fid]
-                firm.D2 = model.Cd * firm.f2
+                # Monetary demand allocated by market share
+                firm_Cd = model.Cd * firm.f2
+                # CRITICAL FIX: D2 must be in QUANTITY units, not monetary units
+                # Convert monetary demand to quantity by dividing by price
+                if firm.p2 > 0
+                    firm.D2 = firm_Cd / firm.p2
+                else
+                    firm.D2 = 0.0
+                end
             end
         end
     else
@@ -272,7 +280,15 @@ function model_step!(model)
         for fid in model.firm2_ids
             if Agents.hasid(model, fid)
                 firm = model[fid]
-                firm.D2 = total_supply * firm.f2
+                # Monetary demand allocated by market share (limited by supply)
+                firm_Cd = total_supply * firm.f2
+                # CRITICAL FIX: D2 must be in QUANTITY units, not monetary units
+                # Convert monetary demand to quantity by dividing by price
+                if firm.p2 > 0
+                    firm.D2 = firm_Cd / firm.p2
+                else
+                    firm.D2 = 0.0
+                end
             end
         end
     end
