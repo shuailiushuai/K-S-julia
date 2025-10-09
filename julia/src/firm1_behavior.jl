@@ -182,6 +182,11 @@ CRITICAL: Sets L1rd at END of period for use in NEXT period's innovation.
 function firm1_produce!(firm::Firm1, model)
     params = model.params
     
+    # Ensure L1d is finite and non-negative
+    if !isfinite(firm.L1d) || firm.L1d < 0
+        firm.L1d = 0.0
+    end
+    
     # Check if we got all desired workers
     if firm.L1 >= firm.L1d || firm.L1d <= 0
         # Got all desired workers (or no demand)
@@ -217,6 +222,11 @@ function firm1_produce!(firm::Firm1, model)
         else
             firm.Q1e = 0.0
         end
+    end
+    
+    # Safety: ensure Q1e is finite
+    if !isfinite(firm.Q1e) || firm.Q1e < 0
+        firm.Q1e = 0.0
     end
     
     # CRITICAL: Save actual R&D workers for NEXT period's innovation calculation

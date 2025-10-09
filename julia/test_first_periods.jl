@@ -5,6 +5,7 @@ Debug first few periods to ensure hiring works
 push!(LOAD_PATH, joinpath(@__DIR__, "src"))
 
 using KSModel
+using Agents
 using Statistics
 
 println("="^60)
@@ -64,7 +65,7 @@ println("RUNNING PERIOD 1")
 println("="^60)
 println()
 
-Agents.step!(model, agent_step!, model_step!)
+Agents.step!(model)
 
 println("After period 1:")
 println("  Employment: $(model.L) / $(model.Ls)")
@@ -105,12 +106,12 @@ for fid in vcat(model.firm1_ids, model.firm2_ids)
         if isa(firm, KSModel.Firm1)
             if isnan(firm.p1) || isnan(firm.w1)
                 println("  ✗ Firm1[$fid] has NaN: p1=$(firm.p1), w1=$(firm.w1)")
-                nan_count += 1
+                global nan_count += 1
             end
         else
             if isnan(firm.p2) || isnan(firm.w2)
                 println("  ✗ Firm2[$fid] has NaN: p2=$(firm.p2), w2=$(firm.w2)")
-                nan_count += 1
+                global nan_count += 1
             end
         end
     end
@@ -139,7 +140,7 @@ if model.L > 0 && !isnan(model.GDP)
     println()
     
     for t in 2:5
-        Agents.step!(model, agent_step!, model_step!)
+        Agents.step!(model)
         println("Period $t: Employment=$(model.L)/$(model.Ls) ($(round((1-model.Ue)*100, digits=1))%), GDP=$(round(model.GDP, digits=2))")
     end
 else
