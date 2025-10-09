@@ -40,6 +40,10 @@ function initialize_model(params::ModelParameters=load_baseline_parameters())
         :SavAcc => 0.0,
         :Sav => 0.0,
         
+        # Lagged variables for consumption calculation
+        :Div_prev => 0.0,  # Previous period dividends
+        :f2_prev => Dict{Int,Float64}(),  # Previous period market shares
+        
         # Labor market
         :L => 0,
         :Ls => params.Ls0,

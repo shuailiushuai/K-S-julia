@@ -45,20 +45,19 @@ function compute_aggregates!(model)
     
     # GDP
     model.GDPnom = model.C + model.I + model.G
-    # Safety check for deflator (use most recent CPI, not oldest)
-    if !isempty(model.CPI_history)
-        deflator = max(model.CPI_history[end], 0.01)  # Use most recent CPI
-    else
-        deflator = max(model.CPI, 0.01)
-    end
     
-    # Real GDP based on actual output
-    model.GDPreal = model.Q2 * model.p2avg / deflator
+    # Real GDP - use current CPI as deflator, not historical
+    # CRITICAL FIX: Use current CPI, not historical CPI from CPI_history
+    deflator = max(model.CPI, 0.01)
+    
+    # Real GDP based on nominal GDP deflated by CPI
+    # Alternative: could use actual output Q2 * p2avg / deflator
+    model.GDPreal = model.GDPnom / deflator
     
     # Safety checks for GDP
     if !isfinite(model.GDPreal) || model.GDPreal < 0
-        # Fallback: use nominal GDP deflated
-        model.GDPreal = model.GDPnom / deflator
+        # Fallback: use actual production
+        model.GDPreal = model.Q2 * model.p2avg / deflator
     end
     if !isfinite(model.GDPnom) || model.GDPnom < 0
         model.GDPnom = model.GDPreal * deflator

@@ -22,7 +22,8 @@ function firm2_form_expectations!(firm::Firm2, model)
         if firm.D2e <= 0.0
             firm.D2e = max(0.1, firm.D2_history[1])
         else
-            firm.D2e = max(firm.D2_history[1], firm.D2e)
+            # Young firms use optimistic expectations
+            firm.D2e = max(firm.D2_history[1], firm.D2e * 0.9)  # At least 90% of previous expectation
         end
         return
     end
@@ -34,7 +35,10 @@ function firm2_form_expectations!(firm::Firm2, model)
         D_actual = firm.D2_history[i]
         D_desired = i == 1 ? firm.D2d : (i <= length(firm.D2_history) ? firm.D2_history[i] : D_actual)
         mixed = (1 - e0) * D_actual + e0 * D_desired
-        push!(demand_mix, max(mixed, D_actual))
+        # CRITICAL FIX: Don't let expectations drop below 50% of actual demand in one period
+        # This prevents catastrophic demand collapse in early periods
+        mixed = max(mixed, D_actual)
+        push!(demand_mix, max(mixed, D_actual * 0.5))  # Floor at 50% of actual
     end
     
     # Apply expectation rule
@@ -79,8 +83,16 @@ function firm2_form_expectations!(firm::Firm2, model)
         firm.D2e = demand_mix[1]
     end
     
-    # Ensure non-negative and not less than last period, with minimum floor
-    firm.D2e = max(firm.D2e, demand_mix[1] * 0.5, 0.01)  # At least 50% of last actual demand
+    # CRITICAL FIX: Ensure non-negative and prevent catastrophic collapse
+    # Don't let expectations drop below 50% of last actual demand
+    min_expectation = max(demand_mix[1] * 0.5, 0.01)
+    # Also ensure expectations don't drop by more than 50% in one period
+    if firm.age > 0 && firm.D2e > 0
+        max_drop = firm.D2e * 0.5
+        firm.D2e = max(firm.D2e, max_drop, min_expectation)
+    else
+        firm.D2e = max(firm.D2e, min_expectation)
+    end
 end
 
 """
