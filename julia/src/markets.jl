@@ -353,7 +353,13 @@ function update_employment_statistics!(model)
     employed = sum(1 for wid in model.worker_ids if model[wid].employed > 0; init=0)
     model.L = employed
     model.U = model.Ls - employed
-    model.Ue = model.U / model.Ls
+    
+    # Safety check: avoid division by zero
+    if model.Ls > 0
+        model.Ue = model.U / model.Ls
+    else
+        model.Ue = 1.0  # All unemployed if no labor force
+    end
     
     # Average wage
     wages = [model[wid].w for wid in model.worker_ids if model[wid].employed > 0]

@@ -29,8 +29,8 @@ function agent_step!(agent::Firm1, model)
     # Age firm
     agent.age += 1
     
-    # Store previous period sales for R&D calculation
-    agent.S1_prev = agent.S1
+    # NOTE: S1_prev update moved to end of model_step! for proper timing
+    # agent.S1_prev = agent.S1  # REMOVED - now done at end of model_step!
     
     # Update average wage
     if isempty(agent.worker_ids)
@@ -337,6 +337,14 @@ function model_step!(model)
     # Compute inflation
     if length(model.CPI_history) >= 2
         model.inflation = (model.CPI - model.CPI_history[end-1]) / model.CPI_history[end-1]
+    end
+    
+    # CRITICAL: Update lagged variables at END of period for use in NEXT period
+    # This matches C model timing where VL("_S1", 1) accesses previous period value
+    for fid in model.firm1_ids
+        if Agents.hasid(model, fid)
+            model[fid].S1_prev = model[fid].S1
+        end
     end
 end
 
