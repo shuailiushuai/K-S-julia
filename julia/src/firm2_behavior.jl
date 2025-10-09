@@ -492,8 +492,9 @@ Update financial position of consumption-good firm.
 function firm2_update_finances!(firm::Firm2, model)
     params = model.params
     
-    # Revenue
-    revenue = firm.S2 * firm.p2
+    # Revenue (S2 is already revenue in currency units, not quantity)
+    # CRITICAL FIX: S2 = quantity_sold * price, so it's already revenue
+    revenue = firm.S2
     
     # Costs
     wage_cost = firm.L2 * firm.w2

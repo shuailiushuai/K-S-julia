@@ -373,8 +373,9 @@ Update financial position of capital-good firm.
 function firm1_update_finances!(firm::Firm1, model)
     params = model.params
     
-    # Revenue
-    revenue = firm.S1 * firm.p1
+    # Revenue (S1 is already revenue in currency units, not quantity)
+    # CRITICAL FIX: S1 = quantity_sold * price, so it's already revenue
+    revenue = firm.S1
     
     # Costs
     wage_cost = firm.L1 * firm.w1
