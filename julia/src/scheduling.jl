@@ -56,6 +56,11 @@ function agent_step!(agent::Firm2, model)
     # Store previous net worth for firing decisions
     agent.NW2_prev = agent.NW2
     
+    # CRITICAL: Store previous period inventory and price for GDP calculation
+    # These are used to calculate dNnom = p2(t)*N2(t) - p2(t-1)*N2(t-1)
+    agent.N2_prev = agent.N2
+    agent.p2_prev = agent.p2
+    
     # Update demand history
     pushfirst!(agent.D2_history, agent.D2)
     if length(agent.D2_history) > 4
@@ -607,6 +612,9 @@ function create_entrant_firm2!(model)
         mu2 = params.mu20,
         w2 = model.wAvg,
         p2 = (1 + params.mu20) * model.wAvg,
+        p2_prev = (1 + params.mu20) * model.wAvg,  # Initialize prev price
+        N2 = 0.0,
+        N2_prev = 0.0,  # Initialize prev inventory
         supplier_id = rand(Agents.abmrng(model), model.firm1_ids),
         D2_history = fill(0.0, 4)
     )

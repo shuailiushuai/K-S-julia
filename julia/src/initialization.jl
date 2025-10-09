@@ -304,7 +304,9 @@ function initialize_firm2!(model)
             w2 = INIWAGE,
             c2 = c2,
             p2 = p2,
+            p2_prev = p2,  # Initialize prev price to current
             N2 = N,
+            N2_prev = N,  # Initialize prev inventory to current
             D2 = D20,
             D2e = D20,
             D2d = D20,
