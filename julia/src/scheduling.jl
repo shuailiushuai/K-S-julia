@@ -249,6 +249,14 @@ function model_step!(model)
     
     model.Cd = total_Cd
     
+    # Compute total desired demand in quantity units (matches C model D2d equation)
+    # D2d = Cd / CPI
+    if model.CPI > 0
+        D2d_total = model.Cd / model.CPI
+    else
+        D2d_total = 0.0
+    end
+    
     # Match demand to supply and allocate to firms
     total_supply = sum(model[fid].Q2e + model[fid].N2 
                       for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
@@ -258,6 +266,11 @@ function model_step!(model)
     for fid in model.firm2_ids
         if Agents.hasid(model, fid)
             firm = model[fid]
+            
+            # Desired (potential) demand allocated by market share (in quantity units)
+            # Matches C model _D2d equation: _f2 * D2d
+            firm.D2d = firm.f2 * D2d_total
+            
             # Monetary demand allocated by market share
             firm_Cd = model.Cd * firm.f2
             # CRITICAL FIX: D2 must be in QUANTITY units, not monetary units
