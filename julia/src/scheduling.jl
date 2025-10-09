@@ -56,7 +56,7 @@ function agent_step!(agent::Firm2, model)
     # Update lifecycle stage (matches C model _life2cycle equation)
     # 0 = pre-operational entrant (no capital)
     # 1 = operating entrant (first period producing, has capital)
-    # 2.x = operating entrant (2nd-4th period producing)
+    # 2.2-2.4 = running entrant (2nd-4th period producing)
     # 3 = incumbent firm (5+ periods)
     # 4 = exiting firm
     if agent.exit_flag
@@ -66,14 +66,17 @@ function agent_step!(agent::Firm2, model)
         if agent.K > 0
             agent.life2cycle = 1  # Becomes operating entrant
         end
-    elseif agent.life2cycle >= 1 && agent.life2cycle < 3
-        # Operating entrant - advance lifecycle
-        if agent.age >= 4
-            agent.life2cycle = 3  # Becomes incumbent
-        else
-            agent.life2cycle = 1 + min(agent.age - 1, 2) * 0.1  # 1.0, 1.1, 1.2, 1.3, then 3
+    elseif agent.life2cycle == 1
+        # Operating entrant (first period) → turn into running entrant
+        agent.life2cycle = 2.2
+    elseif floor(Int, agent.life2cycle) == 2
+        # Running entrant - advance lifecycle
+        agent.life2cycle = agent.life2cycle + 0.1
+        if agent.life2cycle > 2.4001  # handle rounding error (matches C model)
+            agent.life2cycle = 3  # turn into incumbent
         end
     end
+    # incumbent (3) and exiting (4) firms keep their current state
     
     # Store previous net worth for firing decisions
     agent.NW2_prev = agent.NW2
