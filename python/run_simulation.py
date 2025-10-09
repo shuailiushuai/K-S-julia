@@ -5,6 +5,8 @@ K+S Model Runner and Visualization
 Script to run the K+S model and visualize results.
 """
 
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -104,8 +106,12 @@ def visualize_results(model, save_path=None):
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Figure saved to {save_path}")
+    else:
+        # Save to default location if no path specified
+        plt.savefig('ks_results.png', dpi=300, bbox_inches='tight')
+        print(f"Figure saved to ks_results.png")
     
-    plt.show()
+    plt.close()  # Close instead of show to avoid hanging
     
     return fig
 
@@ -169,10 +175,10 @@ def main():
     print_summary_statistics(model)
     
     # Visualize results
-    visualize_results(model, save_path='python/ks_results.png')
+    visualize_results(model, save_path='ks_results.png')
     
     # Export results
-    export_results(model, filename='python/ks_results.csv')
+    export_results(model, filename='ks_results.csv')
     
     print("\nSimulation complete! Check the output files.")
 
