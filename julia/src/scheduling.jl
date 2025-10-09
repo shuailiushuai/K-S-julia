@@ -164,15 +164,17 @@ function model_step!(model)
     # PHASE 4: LABOR MARKET
     labor_market_matching!(model)
     
-    # PHASE 5: PRODUCTION
+    # PHASE 5: PRODUCTION (compute Q1e, Q2e only)
     for fid in model.firm1_ids
         if Agents.hasid(model, fid)
             firm1_produce!(model[fid], model)
         end
     end
+    # CRITICAL FIX: For Sector 2, only compute Q2e here
+    # Sales (S2) will be computed AFTER demand allocation
     for fid in model.firm2_ids
         if Agents.hasid(model, fid)
-            firm2_produce!(model[fid], model)
+            firm2_compute_production!(model[fid], model)
         end
     end
     
@@ -262,7 +264,8 @@ function model_step!(model)
                       for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
     
     # Allocate demand to firms by market share
-    # (rationing happens automatically when firms can't fulfill all demand)
+    # CRITICAL: This matches C model D2 equation which allocates demand iteratively
+    # For now using simplified allocation, but D2 must be set BEFORE sales
     for fid in model.firm2_ids
         if Agents.hasid(model, fid)
             firm = model[fid]
@@ -280,6 +283,24 @@ function model_step!(model)
             else
                 firm.D2 = 0.0
             end
+            
+            # Constrain D2 by available supply (Q2e + N2)
+            # This implements rationing when supply < demand
+            available_supply = firm.Q2e + firm.N2
+            if firm.D2 > available_supply
+                firm.l2 = firm.D2 - available_supply  # unfilled demand
+                firm.D2 = available_supply  # ration to available supply
+            else
+                firm.l2 = 0.0
+            end
+        end
+    end
+    
+    # PHASE 7b: COMPUTE SALES (CRITICAL: Must happen AFTER D2 allocation)
+    # Matches C model _S2 equation: S2 = p2 * D2
+    for fid in model.firm2_ids
+        if Agents.hasid(model, fid)
+            firm2_compute_sales!(model[fid], model)
         end
     end
     
