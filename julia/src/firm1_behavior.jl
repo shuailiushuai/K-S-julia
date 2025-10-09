@@ -19,10 +19,16 @@ function firm1_innovate!(firm::Firm1, model)
     # This matches C model: VL("_L1rd", 1)
     # firm.L1rd was set at end of previous period's production
     # Safety check: avoid division by zero if Ls is 0
-    if model.Ls > 0
+    if model.Ls > 0 && params.Ls0 > 0
         L1rdN = firm.L1rd * params.Ls0 / model.Ls
     else
-        L1rdN = firm.L1rd * params.Ls0 / params.Ls0  # Fallback to no normalization
+        # Fallback: use unnormalized value
+        L1rdN = firm.L1rd
+    end
+    
+    # Safety: ensure L1rdN is finite and non-negative
+    if !isfinite(L1rdN) || L1rdN < 0
+        L1rdN = 0.0
     end
     
     # Innovation success probability
@@ -66,10 +72,16 @@ function firm1_imitate!(firm::Firm1, model)
     # Normalized R&D workers from PREVIOUS period (lagged)
     # This matches C model: VL("_L1rd", 1)
     # Safety check: avoid division by zero if Ls is 0
-    if model.Ls > 0
+    if model.Ls > 0 && params.Ls0 > 0
         L1rdN = firm.L1rd * params.Ls0 / model.Ls
     else
-        L1rdN = firm.L1rd * params.Ls0 / params.Ls0  # Fallback to no normalization
+        # Fallback: use unnormalized value
+        L1rdN = firm.L1rd
+    end
+    
+    # Safety: ensure L1rdN is finite and non-negative
+    if !isfinite(L1rdN) || L1rdN < 0
+        L1rdN = 0.0
     end
     
     # Imitation success probability

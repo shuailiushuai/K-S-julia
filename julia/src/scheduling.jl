@@ -385,18 +385,63 @@ function execute_entry_exit!(model)
     end
     
     # Entry (stochastic based on market conditions)
-    # Sector 1
-    if length(model.firm1_ids) < params.F1max
-        entry_prob = params.omicron * 0.1  # Simplified
-        if rand(Agents.abmrng(model)) < entry_prob
+    # Sector 1  - Matches C model entry1exit equation
+    j_exit1 = count(fid -> Agents.hasid(model, fid) && model[fid].exit_flag, model.firm1_ids)
+    F1_current = length(model.firm1_ids) - j_exit1
+    F10 = params.F10
+    
+    # Calculate market conditions (simplified - could use actual MC1 calculation)
+    # For now use a simpler approach: entry if below F1max
+    if F1_current < params.F1max
+        # Potential entrants based on random draw and market conditions
+        # C model: k = max(0, round(F1 * ((1-omicron)*uniform(x2inf,x2sup) + omicron * MC_change)))
+        random_component = params.x2inf + rand(Agents.abmrng(model)) * (params.x2sup - params.x2inf)
+        base_entry = F1_current * ((1 - params.omicron) * random_component + params.omicron * 0.05)
+        
+        # Apply stickiness (return to average)
+        if F10 > 0
+            stickiness_factor = rand(Agents.abmrng(model)) * params.stick * (Float64(F1_current) / F10 - 1) * F10
+            base_entry -= min(stickiness_factor, base_entry)
+        end
+        
+        # Number of entrants (rounded)
+        k1 = max(0, round(Int, base_entry))
+        
+        # Enforce limits
+        k1 = min(k1, params.F1max - F1_current)
+        k1 = max(k1, params.F1min - F1_current)
+        
+        # Create entrant firms
+        for _ in 1:max(0, k1)
             create_entrant_firm1!(model)
         end
     end
     
-    # Sector 2
-    if length(model.firm2_ids) < params.F2max
-        entry_prob = params.omicron * 0.1  # Simplified
-        if rand(Agents.abmrng(model)) < entry_prob
+    # Sector 2 - Similar logic
+    j_exit2 = count(fid -> Agents.hasid(model, fid) && model[fid].exit_flag, model.firm2_ids)
+    F2_current = length(model.firm2_ids) - j_exit2
+    F20 = params.F20
+    
+    if F2_current < params.F2max
+        # Potential entrants
+        random_component = params.x2inf + rand(Agents.abmrng(model)) * (params.x2sup - params.x2inf)
+        base_entry = F2_current * ((1 - params.omicron) * random_component + params.omicron * 0.05)
+        
+        # Apply stickiness
+        if F20 > 0
+            stickiness_factor = rand(Agents.abmrng(model)) * params.stick * (Float64(F2_current) / F20 - 1) * F20
+            base_entry -= min(stickiness_factor, base_entry)
+        end
+        
+        # Number of entrants (rounded)
+        k2 = max(0, round(Int, base_entry))
+        
+        # Enforce limits
+        k2 = min(k2, params.F2max - F2_current)
+        k2 = max(k2, params.F2min - F2_current)
+        
+        # Create entrant firms
+        for _ in 1:max(0, k2)
             create_entrant_firm2!(model)
         end
     end
