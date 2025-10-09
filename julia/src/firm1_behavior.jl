@@ -235,10 +235,14 @@ function firm1_produce!(firm::Firm1, model)
     firm.L1rd = L_rd_actual
     
     # Sales are minimum of available output (production + inventory) and demand
-    firm.S1 = min(firm.Q1e + firm.N1, firm.D1)
+    quantity_sold = min(firm.Q1e + firm.N1, firm.D1)
     
-    # Update inventories
-    firm.N1 = max(0.0, firm.Q1e + firm.N1 - firm.S1)
+    # CRITICAL FIX: S1 must be REVENUE (quantity * price), not just quantity
+    # This is nominal sales in currency units, used for GDP calculation
+    firm.S1 = quantity_sold * firm.p1
+    
+    # Update inventories (in quantity units)
+    firm.N1 = max(0.0, firm.Q1e + firm.N1 - quantity_sold)
 end
 
 """
@@ -369,8 +373,9 @@ Update financial position of capital-good firm.
 function firm1_update_finances!(firm::Firm1, model)
     params = model.params
     
-    # Revenue
-    revenue = firm.S1 * firm.p1
+    # Revenue (S1 is already revenue in currency units, not quantity)
+    # CRITICAL FIX: S1 = quantity_sold * price, so it's already revenue
+    revenue = firm.S1
     
     # Costs
     wage_cost = firm.L1 * firm.w1

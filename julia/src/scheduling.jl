@@ -249,33 +249,29 @@ function model_step!(model)
     
     model.Cd = total_Cd
     
-    # Match demand to supply
+    # Match demand to supply and allocate to firms
     total_supply = sum(model[fid].Q2e + model[fid].N2 
                       for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
     
-    if total_supply >= model.Cd
-        # Supply sufficient
-        model.C = model.Cd
-        model.Sav = 0.0
-        # Allocate demand to firms by market share
-        for fid in model.firm2_ids
-            if Agents.hasid(model, fid)
-                firm = model[fid]
-                firm.D2 = model.Cd * firm.f2
-            end
-        end
-    else
-        # Rationing
-        model.C = total_supply
-        model.Sav = model.Cd - total_supply
-        model.SavAcc += model.Sav
-        for fid in model.firm2_ids
-            if Agents.hasid(model, fid)
-                firm = model[fid]
-                firm.D2 = total_supply * firm.f2
+    # Allocate demand to firms by market share
+    # (rationing happens automatically when firms can't fulfill all demand)
+    for fid in model.firm2_ids
+        if Agents.hasid(model, fid)
+            firm = model[fid]
+            # Monetary demand allocated by market share
+            firm_Cd = model.Cd * firm.f2
+            # CRITICAL FIX: D2 must be in QUANTITY units, not monetary units
+            # Convert monetary demand to quantity by dividing by price
+            if firm.p2 > 0
+                firm.D2 = firm_Cd / firm.p2
+            else
+                firm.D2 = 0.0
             end
         end
     end
+    
+    # NOTE: model.C and model.Sav will be computed in PHASE 13 (aggregation) 
+    # from actual firm sales S2. This matches C model where C = S2
     
     # PHASE 8: INVESTMENT
     # Execute investment with financing constraints

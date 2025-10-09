@@ -378,10 +378,14 @@ function firm2_produce!(firm::Firm2, model)
     
     # Sales (match to demand, limited by production + inventory)
     available = firm.Q2e + firm.N2
-    firm.S2 = min(available, firm.D2)
+    quantity_sold = min(available, firm.D2)
     
-    # Update inventories
-    firm.N2 = max(0.0, available - firm.S2)
+    # CRITICAL FIX: S2 must be REVENUE (quantity * price), not just quantity
+    # This is nominal sales in currency units, used for GDP calculation
+    firm.S2 = quantity_sold * firm.p2
+    
+    # Update inventories (in quantity units)
+    firm.N2 = max(0.0, available - quantity_sold)
 end
 
 """
@@ -488,8 +492,9 @@ Update financial position of consumption-good firm.
 function firm2_update_finances!(firm::Firm2, model)
     params = model.params
     
-    # Revenue
-    revenue = firm.S2 * firm.p2
+    # Revenue (S2 is already revenue in currency units, not quantity)
+    # CRITICAL FIX: S2 = quantity_sold * price, so it's already revenue
+    revenue = firm.S2
     
     # Costs
     wage_cost = firm.L2 * firm.w2
