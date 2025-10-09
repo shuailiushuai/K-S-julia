@@ -97,7 +97,7 @@ def check_model_structure():
     print("="*70)
     
     required_components = [
-        "schedule_worker", "schedule_firm1", "schedule_firm2", "schedule_bank",
+        "get_agents_of_type",  # Replaced schedulers with AgentSet method
         "datacollector", "initialize_agents", "step",
         "central_bank_policy", "match_consumption_market",
         "update_market_shares", "government_expenditure",
