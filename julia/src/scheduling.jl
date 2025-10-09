@@ -222,14 +222,31 @@ function model_step!(model)
     # PHASE 7: CONSUMPTION & DEMAND
     compute_government_expenditure!(model)
     
+    # CRITICAL FIX: Worker consumption demand includes wages, unemployment benefits,
+    # bonuses from PREVIOUS period, and dividends from PREVIOUS period
+    # This matches C model "Cd" equation:
+    # v[0] = VS(LABSUPL0, "W") + V("G") + VLS(LABSUPL0, "Bon", 1) - 
+    #        VS(LABSUPL0, "TaxW") + VL("Div", 1) - V("TaxDiv")
+    
+    # Get lagged dividends (from previous period)
+    Div_prev = get(Agents.abmproperties(model), :Div_prev, 0.0)
+    
     # Worker consumption demand
     total_Cd = 0.0
     for wid in model.worker_ids
         worker = model[wid]
+        # Current period wages or unemployment benefit
         income = worker.employed > 0 ? worker.w : model.wU
         worker.consumption = income
         total_Cd += income
     end
+    
+    # Add government expenditure (unemployment benefits already counted)
+    # Add previous period dividends (distributed to all workers equally)
+    if model.Ls > 0
+        total_Cd += Div_prev  # Dividends from previous period
+    end
+    
     model.Cd = total_Cd
     
     # Match demand to supply
@@ -378,6 +395,19 @@ function model_step!(model)
             model[fid].S1_prev = model[fid].S1
         end
     end
+    
+    # Save dividends for next period's consumption calculation
+    props = Agents.abmproperties(model)
+    props[:Div_prev] = model.Div
+    
+    # Save f2 values for next period's markup adjustment
+    f2_prev_dict = Dict{Int,Float64}()
+    for fid in model.firm2_ids
+        if Agents.hasid(model, fid)
+            f2_prev_dict[fid] = model[fid].f2
+        end
+    end
+    props[:f2_prev] = f2_prev_dict
 end
 
 """

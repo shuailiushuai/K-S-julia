@@ -40,6 +40,10 @@ function initialize_model(params::ModelParameters=load_baseline_parameters())
         :SavAcc => 0.0,
         :Sav => 0.0,
         
+        # Lagged variables for consumption calculation
+        :Div_prev => 0.0,  # Previous period dividends
+        :f2_prev => Dict{Int,Float64}(),  # Previous period market shares
+        
         # Labor market
         :L => 0,
         :Ls => params.Ls0,
@@ -119,9 +123,11 @@ function initialize_model(params::ModelParameters=load_baseline_parameters())
     # Initialize lagged variables (pre-history)
     initialize_history!(model)
     
-    # CRITICAL: Initialize labor demand for all firms
-    # This ensures firms have proper L_d values at t=0 before first hiring
+    # Initialize labor demand for all firms at t=0.
+    # This ensures firms have proper L_d values before first hiring round.
+    # Also ensures initial investment orders exist.
     initialize_labor_demand!(model)
+    initialize_investment_demand!(model)
     
     # NOTE: In the C model, workers start unemployed and employment is established
     # naturally through the labor market matching in period 1. We follow the same pattern.
@@ -497,5 +503,41 @@ function initialize_labor_demand!(model)
         end
     end
 end
+
+"""
+    initialize_investment_demand!(model)
+
+Initialize investment demand for Firm2 at t=0.
+This ensures Firm1 receives initial orders in period 1.
+"""
+function initialize_investment_demand!(model)
+    params = model.params
+    
+    # Sector 2: Initialize investment based on expected demand and capital
+    for fid in model.firm2_ids
+        firm = model[fid]
+        
+        # Calculate initial desired capital
+        A_avg = firm2_average_productivity(firm)
+        firm.Kd = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
+        
+        # Initial expansion investment (for new firms with initial capital)
+        # Most firms will have K ≈ Kd initially, so minimal expansion
+        # But ensure some baseline investment for steady state
+        if firm.K < firm.Kd
+            firm.EId = min(firm.Kd - firm.K, firm.K * 0.1)  # Max 10% expansion initially
+        else
+            firm.EId = 0.0
+        end
+        
+        # Initial substitution investment (1/eta of capital stock for replacement)
+        # This maintains steady-state replacement
+        firm.SId = firm.K / params.eta
+        
+        # Total investment demand
+        firm.Id = firm.EId + firm.SId
+    end
+end
+
 
 
