@@ -36,7 +36,7 @@ function agent_step!(agent::Firm1, model)
     if isempty(agent.worker_ids)
         agent.w1 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
         agent.w1 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
     end
 end
@@ -58,7 +58,7 @@ function agent_step!(agent::Firm2, model)
     if isempty(agent.worker_ids)
         agent.w2 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
         agent.w2 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
     end
 end
