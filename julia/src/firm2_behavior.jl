@@ -380,7 +380,16 @@ function firm2_compute_production!(firm::Firm2, model)
     Q_labor = firm.L2 * A_avg
     Q_capital = firm.K * params.u * A_avg
     
+    # CRITICAL FIX: Q2e should be minimum of planned production AND production constraints
+    # But if firm has workers and capital, it should produce SOMETHING even if Q2 (planned) is low
     firm.Q2e = min(firm.Q2, Q_labor, Q_capital)
+    
+    # Additional safety: if firm has workers and capital but Q2e is zero, produce at minimum capacity
+    # This prevents employed workers from producing nothing (which would make GDP = 0)
+    if firm.L2 > 0 && firm.K > 0 && firm.Q2e <= 0 && firm.life2cycle > 0
+        # Produce at least what one worker with average productivity can make
+        firm.Q2e = max(Q_labor * 0.5, A_avg)
+    end
     
     # Safety: ensure Q2e is finite and non-negative
     if !isfinite(firm.Q2e) || firm.Q2e < 0
