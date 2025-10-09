@@ -55,8 +55,26 @@ function compute_aggregates!(model)
         end
     end
     
-    # GDP
-    model.GDPnom = model.C + model.I + model.G
+    # CRITICAL FIX: Calculate change in nominal inventories (dNnom)
+    # This matches C model: dNnom = sum(p2(t)*N2(t) - p2(t-1)*N2(t-1))
+    # This component was MISSING from the Julia GDP calculation!
+    dNnom = 0.0
+    for fid in model.firm2_ids
+        if Agents.hasid(model, fid)
+            firm = model[fid]
+            # Current period nominal inventory value
+            N_current = firm.p2 * firm.N2
+            # Previous period nominal inventory value
+            N_prev = firm.p2_prev * firm.N2_prev
+            # Change in nominal inventory
+            dNnom += N_current - N_prev
+        end
+    end
+    
+    # GDP - CORRECTED to match C model formula
+    # C model: GDPnom = C + Inom + dNnom
+    # where Inom is nominal investment (not including government spending)
+    model.GDPnom = model.C + model.I + dNnom
     
     # Real GDP - use current CPI as deflator, not historical
     # CRITICAL FIX: Use current CPI, not historical CPI from CPI_history

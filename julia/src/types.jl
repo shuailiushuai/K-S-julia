@@ -157,6 +157,8 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     S2::Float64 = 0.0
     l2::Float64 = 0.0  # Unfilled demand in quantity units
     N2::Float64 = 0.0
+    N2_prev::Float64 = 0.0  # Previous period inventory for GDP calculation
+    p2_prev::Float64 = 1.0  # Previous period price for GDP calculation
     K::Float64 = 0.0
     Kd::Float64 = 0.0
     vintages::Dict{Int,NamedTuple} = Dict{Int,NamedTuple}()

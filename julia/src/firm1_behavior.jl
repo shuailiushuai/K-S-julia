@@ -234,15 +234,13 @@ function firm1_produce!(firm::Firm1, model)
     # Innovation at time t+1 will use this value (lagged)
     firm.L1rd = L_rd_actual
     
-    # Sales are minimum of available output (production + inventory) and demand
-    quantity_sold = min(firm.Q1e + firm.N1, firm.D1)
+    # CRITICAL FIX: In C model, sector 1 has NO inventories
+    # Sales = production * price (matching C model: _S1 = _p1 * _Q1e)
+    # All production is sold directly to sector 2 firms who ordered it
+    firm.S1 = firm.Q1e * firm.p1
     
-    # CRITICAL FIX: S1 must be REVENUE (quantity * price), not just quantity
-    # This is nominal sales in currency units, used for GDP calculation
-    firm.S1 = quantity_sold * firm.p1
-    
-    # Update inventories (in quantity units)
-    firm.N1 = max(0.0, firm.Q1e + firm.N1 - quantity_sold)
+    # No inventory tracking for sector 1 (always 0 in C model)
+    firm.N1 = 0.0
 end
 
 """
