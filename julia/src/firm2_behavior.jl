@@ -351,14 +351,16 @@ function execute_investment_order(firm::Firm2, desired::Float64, model)
 end
 
 """
-    firm2_produce!(firm::Firm2, model)
+    firm2_compute_production!(firm::Firm2, model)
 
-Execute production for consumption-good firm.
+Compute effective production (Q2e) for consumption-good firm.
+This must be called BEFORE demand allocation.
+Matches C model _Q2e equation.
 """
-function firm2_produce!(firm::Firm2, model)
+function firm2_compute_production!(firm::Firm2, model)
     params = model.params
     
-    # Effective production limited by labor
+    # Effective production limited by labor and capital
     A_avg = firm2_average_productivity(firm)
     
     # Safety: ensure A_avg is finite and positive
@@ -375,21 +377,26 @@ function firm2_produce!(firm::Firm2, model)
     if !isfinite(firm.Q2e) || firm.Q2e < 0
         firm.Q2e = 0.0
     end
+end
+
+"""
+    firm2_compute_sales!(firm::Firm2, model)
+
+Compute sales (S2) and update inventories for consumption-good firm.
+This must be called AFTER demand allocation (D2 is set).
+Matches C model _S2 equation: S2 = p2 * D2
+"""
+function firm2_compute_sales!(firm::Firm2, model)
+    # Sales based on allocated demand D2
+    # Matches C model: _S2 = _p2 * _D2
+    firm.S2 = firm.p2 * firm.D2
     
-    # Sales (match to demand, limited by production + inventory)
-    available = firm.Q2e + firm.N2
-    quantity_sold = min(available, firm.D2)
+    # Update inventories
+    # N2(t) = Q2e(t) + N2(t-1) - D2(t)
+    firm.N2 = max(0.0, firm.Q2e + firm.N2 - firm.D2)
     
-    # Track unfilled demand in quantity units (for competitiveness calculation)
-    # Matches C model: _l2 = demand - supply when rationed
-    firm.l2 = max(0.0, firm.D2 - quantity_sold)
-    
-    # CRITICAL FIX: S2 must be REVENUE (quantity * price), not just quantity
-    # This is nominal sales in currency units, used for GDP calculation
-    firm.S2 = quantity_sold * firm.p2
-    
-    # Update inventories (in quantity units)
-    firm.N2 = max(0.0, available - quantity_sold)
+    # l2 (unfilled demand) is already set by demand allocation in scheduling
+    # No need to recalculate here
 end
 
 """
