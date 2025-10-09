@@ -190,18 +190,17 @@ function firm2_decide_investment!(firm::Firm2, model)
     # Desired capacity with slack and utilization, based on expectations/inventories
     A_avg = firm2_average_productivity(firm)
     
-    # CRITICAL FIX: Ensure minimum desired capital doesn't drop below current level
-    # too quickly to prevent cascading investment collapse
+    # Calculate desired capital from expectations
     Kd_from_expectations = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
     
-    # CRITICAL FIX: Never let desired capital drop below minimum threshold
-    # This matches C model behavior where firms maintain capital stock
-    # The minimum should be at least enough to maintain some production capacity
-    if firm.K > 0
-        # Ensure Kd doesn't drop below 70% of current capital to prevent collapse
-        # This prevents cascading disinvestment that leads to zero orders for Sector 1
-        firm.Kd = max(Kd_from_expectations, firm.K * 0.7)
+    # CRITICAL FIX: Prevent excessive capital drops that can cause investment collapse
+    # Apply a floor only in early periods or when at risk of total collapse
+    if model.t <= 10 || Kd_from_expectations < firm.K * 0.5
+        # In early periods or when desired capital drops too much,
+        # limit the drop to prevent cascading collapse
+        firm.Kd = max(Kd_from_expectations, firm.K * 0.6)
     else
+        # Normal periods: allow natural adjustment
         firm.Kd = Kd_from_expectations
     end
     
