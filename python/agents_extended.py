@@ -209,23 +209,26 @@ class Firm2(Firm):
         
         # CRITICAL FIX: Replacement investment following C++ logic
         # Scrap machines that are either:
-        # 1. Beyond technical lifetime (age > eta), OR
+        # 1. Beyond technical lifetime (age >= eta), OR
         # 2. Economically obsolete (payback < b for replacement)
+        # BUT: Only scrap if we can afford to replace or if past technical life
         t = self.model.steps
         w2avg = self.model.get_sector2_avg_wage()
         
+        # Check financial capacity for replacement
+        available_finance = max(self.NW + self.Debmax - self.Deb, 0)
+        p1_avg = self.model.get_avg_price_sector1()
+        max_affordable_machines = int(available_finance / p1_avg) if p1_avg > 0 else 0
+        
+        machines_to_scrap = []
         for vintage in self.vintages[:]:
             vintage.age = t - vintage.t0
             
-            # Check technical lifetime
-            if vintage.age > self.model.eta:
-                # Out of technical life - must scrap
-                Id += vintage.machines
-                self.K -= vintage.machines
-                self.vintages.remove(vintage)
-            elif self.supplier:
-                # Check economic replacement (payback period)
-                # Calculate cost advantage of new machines
+            # Check technical lifetime - MUST scrap if beyond eta
+            if vintage.age >= self.model.eta:
+                machines_to_scrap.append((vintage, vintage.machines, True))  # forced=True
+            elif self.supplier and max_affordable_machines > 0:
+                # Check economic replacement only if we can afford it
                 new_A = self.supplier.Atau
                 old_A = vintage.A
                 
@@ -234,10 +237,25 @@ class Firm2(Firm):
                     if cost_savings > 0:
                         payback = (self.supplier.p1 / self.model.m2) / cost_savings
                         if payback < self.model.b:
-                            # Economically worthwhile to replace
-                            Id += vintage.machines
-                            self.K -= vintage.machines
-                            self.vintages.remove(vintage)
+                            # Economically worthwhile to replace - but limit by affordability
+                            machines_to_scrap.append((vintage, vintage.machines, False))  # forced=False
+        
+        # Process scrapping - prioritize forced scrapping
+        for vintage, machines, forced in machines_to_scrap:
+            if forced:
+                # Must scrap regardless of finances
+                Id += machines
+                self.K -= machines
+                if vintage in self.vintages:
+                    self.vintages.remove(vintage)
+            elif max_affordable_machines >= machines:
+                # Can afford to replace
+                Id += machines
+                self.K -= machines
+                max_affordable_machines -= machines
+                if vintage in self.vintages:
+                    self.vintages.remove(vintage)
+            # else: skip economic replacement if can't afford
         
         # Ensure K doesn't go negative
         self.K = max(self.K, 0)
@@ -256,15 +274,15 @@ class Firm2(Firm):
             self.K = min_machines
             Id = max(Id - min_machines, 0)  # Adjust Id since we added machines
         
-        # Order machines
+        # Order machines with financial constraints
         if Id > 0 and self.supplier:
-            # Check financial constraints
+            # Recalculate available finance
             available_finance = max(self.NW + self.Debmax - self.Deb, 0)
             p1_avg = self.model.get_avg_price_sector1()
             if p1_avg > 0:
-                Id = min(Id, available_finance / p1_avg)
+                Id = min(Id, int(available_finance / p1_avg))
             
-            self.machine_order = int(Id)
+            self.machine_order = max(int(Id), 0)
         else:
             self.machine_order = 0
     

@@ -474,6 +474,15 @@ class KSModel(mesa.Model):
         for firm2 in self.get_agents_of_type(Firm2):
             firm2.produce()
         
+        # 7.5. CRITICAL FIX: Deliver machines from Firm1 to Firm2
+        for firm2 in self.get_agents_of_type(Firm2):
+            if firm2.machine_order > 0 and firm2.supplier:
+                # Deliver ordered machines (simplified - instant delivery)
+                firm2.receive_machines(firm2.machine_order)
+                # Firm1 records the sale
+                firm2.supplier.Q1sold = getattr(firm2.supplier, 'Q1sold', 0) + firm2.machine_order
+                firm2.machine_order = 0  # Reset order
+        
         # 8. Price setting
         for firm1 in self.get_agents_of_type(Firm1):
             firm1.p1 = (1 + self.mu1) * self.get_sector1_avg_wage() / firm1.Btau / self.m1
