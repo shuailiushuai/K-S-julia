@@ -180,7 +180,18 @@ function firm2_decide_investment!(firm::Firm2, model)
     # Calculate desired capital (_Kd equation)
     # Desired capacity with slack and utilization, based on expectations/inventories
     A_avg = firm2_average_productivity(firm)
-    firm.Kd = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
+    
+    # CRITICAL FIX: Ensure minimum desired capital doesn't drop below current level
+    # too quickly to prevent cascading investment collapse
+    Kd_from_expectations = max((1 + params.iota) * firm.D2e - firm.N2, 0.0) / params.u
+    
+    # For young firms or when expectations are dropping, don't let desired capital
+    # fall below 50% of current capital
+    if firm.age < 10 || firm.D2e < get(firm.D2_history, 2, firm.D2e) * 1.5
+        firm.Kd = max(Kd_from_expectations, firm.K * 0.5)
+    else
+        firm.Kd = Kd_from_expectations
+    end
     
     # === EXPANSION INVESTMENT (_EId equation) ===
     K_current = firm.K
