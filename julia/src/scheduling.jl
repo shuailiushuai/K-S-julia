@@ -320,8 +320,10 @@ function model_step!(model)
         end
     end
     
-    model.I = sum((model[fid].EI + model[fid].SI) 
-                  for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
+    # CRITICAL FIX: Calculate nominal investment (Inom) matching C model
+    # Inom = sum of (machines * price) for NEW vintages deployed THIS period
+    # This is NOT the same as sum(EI + SI) which are in capital units
+    model.I = 0.0
     
     # Add new vintages for successful investments
     for fid in model.firm2_ids
@@ -335,6 +337,10 @@ function model_step!(model)
             supplier = model[firm.supplier_id]
             n_machines = round(Int, total_investment / params.m2)
             if n_machines > 0
+                # CRITICAL: Nominal investment is machines * price (matching C model _Inom)
+                nominal_investment = n_machines * supplier.p1
+                model.I += nominal_investment
+                
                 vintage_id = model.t * 10000 + firm.supplier_id
                 firm.vintages[vintage_id] = (
                     t0 = model.t,
