@@ -51,7 +51,19 @@ function compute_aggregates!(model)
     else
         deflator = max(model.CPI, 0.01)
     end
+    
+    # Real GDP based on actual output
     model.GDPreal = model.Q2 * model.p2avg / deflator
+    
+    # Safety checks for GDP
+    if !isfinite(model.GDPreal) || model.GDPreal < 0
+        # Fallback: use nominal GDP deflated
+        model.GDPreal = model.GDPnom / deflator
+    end
+    if !isfinite(model.GDPnom) || model.GDPnom < 0
+        model.GDPnom = model.GDPreal * deflator
+    end
+    
     model.GDP = model.GDPreal
     
     # Dividends
