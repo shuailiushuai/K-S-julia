@@ -119,6 +119,10 @@ function initialize_model(params::ModelParameters=load_baseline_parameters())
     # Initialize lagged variables (pre-history)
     initialize_history!(model)
     
+    # CRITICAL: Initialize labor demand for all firms
+    # This ensures firms have proper L_d values at t=0 before first hiring
+    initialize_labor_demand!(model)
+    
     return model
 end
 
@@ -436,4 +440,53 @@ function initialize_history!(model)
     model.CPI = 1.0
     
     # Note: Firm histories are already initialized in initialize_firm2!
+end
+
+"""
+    initialize_labor_demand!(model)
+
+Initialize labor demand for all firms at t=0.
+This ensures firms have proper L_d values before first hiring round.
+Matches C model initial conditions.
+"""
+function initialize_labor_demand!(model)
+    params = model.params
+    
+    # Sector 1: Initialize labor demand based on expected production
+    for fid in model.firm1_ids
+        firm = model[fid]
+        
+        # Initial production planning based on initial demand
+        firm.Q1 = firm.D1 * (1 + params.iota)
+        
+        # R&D labor (already set in initialization)
+        # Production labor
+        if firm.B > 0 && params.m1 > 0
+            L_prod = max(ceil(firm.Q1 / (params.m1 * firm.B)), 0.0)
+        else
+            L_prod = 1.0
+        end
+        
+        # Total labor demand
+        firm.L1d = max(firm.L1dRD + L_prod, 1.0)
+    end
+    
+    # Sector 2: Initialize labor demand based on expected production
+    for fid in model.firm2_ids
+        firm = model[fid]
+        
+        # Plan initial production
+        Q_desired = max((1 + params.iota) * firm.D2e - firm.N2, 0.0)
+        A_avg = firm2_average_productivity(firm)
+        Q_capacity = firm.K * params.u * A_avg
+        firm.Q2 = min(Q_desired, Q_capacity)
+        
+        # Calculate labor demand
+        if A_avg > 0 && firm.Q2 > 0
+            L_needed = firm.Q2 / A_avg
+            firm.L2d = max(ceil(L_needed), 1.0)
+        else
+            firm.L2d = 1.0
+        end
+    end
 end

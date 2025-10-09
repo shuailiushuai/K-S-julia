@@ -344,6 +344,11 @@ function firm2_set_price!(firm::Firm2, model)
         firm.c2 = firm.w2 / 1.0  # Fallback
     end
     
+    # Safety: ensure c2 is finite and positive
+    if !isfinite(firm.c2) || firm.c2 <= 0
+        firm.c2 = firm.w2
+    end
+    
     # Adjust markup based on market share change
     if firm.age > 0
         # Market share growth
@@ -357,8 +362,13 @@ function firm2_set_price!(firm::Firm2, model)
         firm.mu2 = clamp(firm.mu2 + markup_change, 0.0, 1.0)
     end
     
-    # Price (ensure positive)
-    firm.p2 = max((1 + firm.mu2) * firm.c2, 0.01)  # Minimum price floor
+    # Price (ensure positive and finite)
+    firm.p2 = (1 + firm.mu2) * firm.c2
+    
+    # Final safety checks
+    if !isfinite(firm.p2) || firm.p2 <= 0
+        firm.p2 = max(model.wMin * 2, 0.01)  # Fallback price
+    end
 end
 
 """
