@@ -36,7 +36,7 @@ function agent_step!(agent::Firm1, model)
     if isempty(agent.worker_ids)
         agent.w1 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
         agent.w1 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
     end
 end
@@ -58,7 +58,7 @@ function agent_step!(agent::Firm2, model)
     if isempty(agent.worker_ids)
         agent.w2 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid)]
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
         agent.w2 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
     end
 end
@@ -101,18 +101,48 @@ function model_step!(model)
     end
     
     # PHASE 3: R&D & PRODUCTION PLANNING (Sector 1)
+    # CRITICAL: The C model sequence is:
+    # 1. Calculate R&D expenditure (_RD) using previous period sales
+    # 2. Receive orders from Sector 2 (D1)
+    # 3. Plan production (Q1)
+    # 4. Calculate labor demand (_L1d, _L1dRD)
+    
     for fid in model.firm1_ids
         if !Agents.hasid(model, fid)
             continue
         end
         firm = model[fid]
+        
+        # Do R&D (innovation/imitation) using L1rd from previous period
         firm1_rd!(firm, model)
-        # Aggregate orders from Sector 2
+        
+        # Compute R&D expenditure for THIS period (for labor demand)
+        # This uses S1_prev (sales from previous period)
+        firm1_compute_rd_expenditure!(firm, model)
+    end
+    
+    # Aggregate orders from Sector 2 (desired investment)
+    for fid in model.firm1_ids
+        if !Agents.hasid(model, fid)
+            continue
+        end
+        firm = model[fid]
         # Id is in capital units, convert to number of machines by dividing by m2
         firm.D1 = sum(model[f2id].Id / params.m2 * (model[f2id].supplier_id == fid) 
                      for f2id in model.firm2_ids if Agents.hasid(model, f2id); init=0.0)
-        firm1_plan_production!(firm, model)  # MUST come before labor demand
-        firm1_compute_labor_demand!(firm, model)  # Uses Q1 from plan_production
+    end
+    
+    for fid in model.firm1_ids
+        if !Agents.hasid(model, fid)
+            continue
+        end
+        firm = model[fid]
+        
+        # Plan production based on demand
+        firm1_plan_production!(firm, model)
+        
+        # Calculate labor demand (uses Q1 from plan_production and L1dRD from compute_rd_expenditure)
+        firm1_compute_labor_demand!(firm, model)
     end
     
     # PHASE 4: LABOR MARKET
@@ -139,7 +169,7 @@ function model_step!(model)
     
     # Update average prices
     if !isempty(model.firm1_ids)
-        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid)]
+        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid) && isfinite(model[fid].p1)]
         model.p1avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.PPI = model.p1avg
     end
@@ -152,7 +182,7 @@ function model_step!(model)
     end
     
     if !isempty(model.firm2_ids)
-        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid)]
+        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid) && isfinite(model[fid].p2)]
         model.p2avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.CPI = model.p2avg
     end
