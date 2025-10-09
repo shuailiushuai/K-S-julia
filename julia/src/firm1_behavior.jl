@@ -228,10 +228,15 @@ function firm1_set_price!(firm::Firm1, model)
     params = model.params
     
     # Unit cost (wage / productivity / modularity)
-    firm.c1 = firm.w1 / firm.B / params.m1
+    # Safety: ensure positive denominator
+    if firm.B > 0 && params.m1 > 0
+        firm.c1 = firm.w1 / firm.B / params.m1
+    else
+        firm.c1 = firm.w1 / 0.1  # Fallback cost
+    end
     
-    # Price with fixed markup
-    firm.p1 = (1 + params.mu1) * firm.c1
+    # Price with fixed markup (ensure positive)
+    firm.p1 = max((1 + params.mu1) * firm.c1, 0.01)  # Minimum price floor
 end
 
 """

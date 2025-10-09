@@ -317,7 +317,12 @@ function firm2_set_price!(firm::Firm2, model)
     params = model.params
     
     # Unit cost
-    firm.c2 = firm.w2 / firm2_average_productivity(firm)
+    A_avg = firm2_average_productivity(firm)
+    if A_avg > 0
+        firm.c2 = firm.w2 / A_avg
+    else
+        firm.c2 = firm.w2 / 1.0  # Fallback
+    end
     
     # Adjust markup based on market share change
     if firm.age > 0
@@ -332,8 +337,8 @@ function firm2_set_price!(firm::Firm2, model)
         firm.mu2 = clamp(firm.mu2 + markup_change, 0.0, 1.0)
     end
     
-    # Price
-    firm.p2 = (1 + firm.mu2) * firm.c2
+    # Price (ensure positive)
+    firm.p2 = max((1 + firm.mu2) * firm.c2, 0.01)  # Minimum price floor
 end
 
 """
