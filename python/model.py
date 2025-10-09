@@ -718,8 +718,13 @@ class KSModel(mesa.Model):
         """Remove firms that meet exit conditions"""
         from agents_extended import Firm2
         
-        # Firm1 exits
-        exiting_firm1 = [f for f in self.get_agents_of_type(Firm1) if f.exit_condition()]
+        # Firm1 exits - only if truly insolvent
+        exiting_firm1 = []
+        for f in self.get_agents_of_type(Firm1):
+            # More conservative exit: only if negative NW and no recovery possible
+            if f.NW < -abs(f.S) and f.Deb > f.NW + abs(f.S):
+                exiting_firm1.append(f)
+        
         for firm1 in exiting_firm1:
             # Fire workers
             for worker in firm1.workers[:]:
@@ -742,8 +747,13 @@ class KSModel(mesa.Model):
             
             firm1.remove()
         
-        # Firm2 exits
-        exiting_firm2 = [f for f in self.get_agents_of_type(Firm2) if f.exit_condition()]
+        # Firm2 exits - only if truly insolvent
+        exiting_firm2 = []
+        for f in self.get_agents_of_type(Firm2):
+            # More conservative exit: only if negative NW and deeply in debt
+            if f.NW < -abs(f.S) and f.Deb > f.NW + abs(f.S):
+                exiting_firm2.append(f)
+        
         for firm2 in exiting_firm2:
             # Fire workers
             for worker in firm2.workers[:]:
@@ -779,8 +789,8 @@ class KSModel(mesa.Model):
                 avg_NW1 = np.mean([f.NW for f in firm1_agents])
                 # Only allow entry if profitable AND above half target
                 if avg_profit1 > 0 and avg_NW1 > 0 and firm1_count > self.F10 * 0.5:
-                    # More conservative entry rate
-                    num_entries1 = max(0, min(int(self.omicron * 0.5 * (self.F10 - firm1_count)), 2))
+                    # More conservative entry rate - limit to 1-2 firms max
+                    num_entries1 = max(0, min(int(self.omicron * 0.3 * (self.F10 - firm1_count)), 1))
                 else:
                     num_entries1 = 0
             else:
@@ -803,8 +813,8 @@ class KSModel(mesa.Model):
                 avg_NW2 = np.mean([f.NW for f in firm2_agents])
                 # Only allow entry if profitable AND above half target
                 if avg_profit2 > 0 and avg_NW2 > 0 and firm2_count > self.F20 * 0.5:
-                    # More conservative entry rate
-                    num_entries2 = max(0, min(int(self.omicron * 0.5 * (self.F20 - firm2_count)), 5))
+                    # More conservative entry rate - limit to 2-3 firms max
+                    num_entries2 = max(0, min(int(self.omicron * 0.3 * (self.F20 - firm2_count)), 2))
                 else:
                     num_entries2 = 0
             else:
