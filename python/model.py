@@ -474,6 +474,15 @@ class KSModel(mesa.Model):
         for firm2 in self.get_agents_of_type(Firm2):
             firm2.produce()
         
+        # 7.5. CRITICAL FIX: Deliver machines from Firm1 to Firm2
+        for firm2 in self.get_agents_of_type(Firm2):
+            if firm2.machine_order > 0 and firm2.supplier:
+                # Deliver ordered machines (simplified - instant delivery)
+                firm2.receive_machines(firm2.machine_order)
+                # Firm1 records the sale
+                firm2.supplier.Q1sold = getattr(firm2.supplier, 'Q1sold', 0) + firm2.machine_order
+                firm2.machine_order = 0  # Reset order
+        
         # 8. Price setting
         for firm1 in self.get_agents_of_type(Firm1):
             firm1.p1 = (1 + self.mu1) * self.get_sector1_avg_wage() / firm1.Btau / self.m1
@@ -620,23 +629,33 @@ class KSModel(mesa.Model):
         # Firm2 market shares
         firm2_agents = list(self.get_agents_of_type(Firm2))
         if len(firm2_agents) > 0:
+            # Calculate weighted competitiveness
+            # Add safety check to prevent division by zero
             E_weighted = sum(f2.f * f2.E for f2 in firm2_agents)
             
             for firm2 in firm2_agents:
+                # Replicator dynamics with bounded change
                 f2_new = firm2.f * (1 + self.chi * (firm2.E - E_weighted))
-                firm2.f = max(f2_new, 0)
+                # Ensure non-negative and bounded
+                firm2.f = max(f2_new, self.f_min)
             
-            # Normalize
+            # Normalize to sum to 1
             f2_total = sum(f2.f for f2 in firm2_agents)
             if f2_total > 0:
                 for firm2 in firm2_agents:
                     firm2.f = firm2.f / f2_total
+            else:
+                # Fallback: equal shares
+                for firm2 in firm2_agents:
+                    firm2.f = 1.0 / len(firm2_agents)
         
         # Firm1 market shares (based on clients)
         firm1_agents = list(self.get_agents_of_type(Firm1))
         if len(firm1_agents) > 0:
+            # Total clients across all firm1
+            total_clients = sum(len(f1.clients) for f1 in firm1_agents)
             for firm1 in firm1_agents:
-                firm1.f = len(firm1.clients) / max(len(firm2_agents), 1)
+                firm1.f = len(firm1.clients) / max(total_clients, 1) if total_clients > 0 else 1.0 / len(firm1_agents)
     
     def government_expenditure(self):
         """Calculate government expenditure"""
@@ -699,8 +718,13 @@ class KSModel(mesa.Model):
         """Remove firms that meet exit conditions"""
         from agents_extended import Firm2
         
-        # Firm1 exits
-        exiting_firm1 = [f for f in self.get_agents_of_type(Firm1) if f.exit_condition()]
+        # Firm1 exits - only if truly insolvent
+        exiting_firm1 = []
+        for f in self.get_agents_of_type(Firm1):
+            # More conservative exit: only if negative NW and no recovery possible
+            if f.NW < -abs(f.S) and f.Deb > f.NW + abs(f.S):
+                exiting_firm1.append(f)
+        
         for firm1 in exiting_firm1:
             # Fire workers
             for worker in firm1.workers[:]:
@@ -723,8 +747,13 @@ class KSModel(mesa.Model):
             
             firm1.remove()
         
-        # Firm2 exits
-        exiting_firm2 = [f for f in self.get_agents_of_type(Firm2) if f.exit_condition()]
+        # Firm2 exits - only if truly insolvent
+        exiting_firm2 = []
+        for f in self.get_agents_of_type(Firm2):
+            # More conservative exit: only if negative NW and deeply in debt
+            if f.NW < -abs(f.S) and f.Deb > f.NW + abs(f.S):
+                exiting_firm2.append(f)
+        
         for firm2 in exiting_firm2:
             # Fire workers
             for worker in firm2.workers[:]:
@@ -744,47 +773,53 @@ class KSModel(mesa.Model):
         """Add new entrant firms based on profitability and target numbers"""
         from agents_extended import Firm2, Bank
         
-        # Entry logic for Firm1
+        # Entry logic for Firm1 - more conservative
         firm1_count = len(self.get_agents_of_type(Firm1))
         if firm1_count < self.F1min:
-            # Below minimum, need entries
-            num_entries1 = self.F1min - firm1_count
+            # Below minimum, need entries (but limit to avoid huge jumps)
+            num_entries1 = min(self.F1min - firm1_count, 5)
         elif firm1_count > self.F1max:
             # Above maximum, no entries
             num_entries1 = 0
         else:
-            # Check profitability for entry
+            # Check profitability for entry - more conservative
             firm1_agents = list(self.get_agents_of_type(Firm1))
             if len(firm1_agents) > 0:
                 avg_profit1 = np.mean([f.Pi for f in firm1_agents])
-                if avg_profit1 > 0:
-                    # Positive profits encourage entry
-                    num_entries1 = max(0, int(self.omicron * (self.F10 - firm1_count)))
+                avg_NW1 = np.mean([f.NW for f in firm1_agents])
+                # Only allow entry if profitable AND above half target
+                if avg_profit1 > 0 and avg_NW1 > 0 and firm1_count > self.F10 * 0.5:
+                    # More conservative entry rate - limit to 1-2 firms max
+                    num_entries1 = max(0, min(int(self.omicron * 0.3 * (self.F10 - firm1_count)), 1))
                 else:
                     num_entries1 = 0
             else:
-                num_entries1 = max(1, self.F10 - firm1_count)
+                # No firms - need at least one
+                num_entries1 = 1
         
-        # Entry logic for Firm2
+        # Entry logic for Firm2 - more conservative
         firm2_count = len(self.get_agents_of_type(Firm2))
         if firm2_count < self.F2min:
-            # Below minimum, need entries
-            num_entries2 = self.F2min - firm2_count
+            # Below minimum, need entries (but limit to avoid huge jumps)
+            num_entries2 = min(self.F2min - firm2_count, 10)
         elif firm2_count > self.F2max:
             # Above maximum, no entries
             num_entries2 = 0
         else:
-            # Check profitability for entry
+            # Check profitability for entry - more conservative
             firm2_agents = list(self.get_agents_of_type(Firm2))
             if len(firm2_agents) > 0:
                 avg_profit2 = np.mean([f.Pi for f in firm2_agents])
-                if avg_profit2 > 0:
-                    # Positive profits encourage entry
-                    num_entries2 = max(0, int(self.omicron * (self.F20 - firm2_count)))
+                avg_NW2 = np.mean([f.NW for f in firm2_agents])
+                # Only allow entry if profitable AND above half target
+                if avg_profit2 > 0 and avg_NW2 > 0 and firm2_count > self.F20 * 0.5:
+                    # More conservative entry rate - limit to 2-3 firms max
+                    num_entries2 = max(0, min(int(self.omicron * 0.3 * (self.F20 - firm2_count)), 2))
                 else:
                     num_entries2 = 0
             else:
-                num_entries2 = max(1, self.F20 - firm2_count)
+                # No firms - need at least one
+                num_entries2 = 1
         
         # Create entrant Firm1
         banks = list(self.get_agents_of_type(Bank))
@@ -804,6 +839,9 @@ class KSModel(mesa.Model):
         for i in range(num_entries2):
             max_id += 1
             firm2 = Firm2(max_id, self)
+            # Initialize with expected demand based on capacity
+            firm2.D2e = self.u * firm2.K * self.m2
+            firm2.D2d = firm2.D2e
             # Assign bank
             firm2.bank = self.random.choice(banks) if len(banks) > 0 else None
             if firm2.bank:
