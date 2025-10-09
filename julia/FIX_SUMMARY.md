@@ -1,176 +1,97 @@
-# K+S Julia Model: Before and After Fixes
+# Fix Summary: Investment Collapse and 100% Unemployment
 
-## Quick Comparison
+## Problem Description
 
-### Simulation Results
+The Julia implementation of the K+S model showed two different behaviors in testing:
+1. **Small model (F10=3, F20=10, Ls0=50)**: Works correctly with ~94% employment in period 1
+2. **Large model (F10=100, F20=400, Ls0=5000)**: Fails with constant GDP=913.5 and 100% unemployment
 
-#### BEFORE FIXES
+## Root Cause Analysis
+
+### Primary Issue: Investment Collapse Cascade
+
+The model has a dependency chain:
 ```
-Running simulation for 200 periods...
-Step 50 / 200 completed. GDP=NaN, Ue=100.0%
-Step 100 / 200 completed. GDP=NaN, Ue=100.0%
-Step 150 / 200 completed. GDP=NaN, Ue=100.0%
-Step 200 / 200 completed. GDP=NaN, Ue=100.0%
-
-FINAL STATE:
-GDP:                 NaN
-Consumption:         NaN
-Investment:          NaN
-Employment:          0
-Unemployment Rate:   100.0%
-Average Wage:        NaN
-Firm1 count:         13
-Firm2 count:         90
+Investment demand (Id) → Orders to Sector 1 (D1) → Sector 1 production (Q1) → 
+Sector 1 sales (S1) → R&D expenditure (RD) → Labor demand (L1d) → Hiring
 ```
 
-#### AFTER FIXES
-```
-Running simulation for 200 periods...
-Step 50 / 200 completed. GDP=1234.56, Ue=8.5%
-Step 100 / 200 completed. GDP=1345.67, Ue=7.2%
-Step 150 / 200 completed. GDP=1456.78, Ue=9.1%
-Step 200 / 200 completed. GDP=1567.89, Ue=8.8%
+When investment demand drops to zero, the entire chain collapses:
 
-FINAL STATE:
-GDP:                 1567.89
-Consumption:         1234.56
-Investment:          234.56
-Employment:          ~91%
-Unemployment Rate:   8.8%
-Average Wage:        12.34
-Firm1 count:         12-14 (stable)
-Firm2 count:         85-95 (stable)
-```
+1. **Desired Capital Calculation**: `Kd = max((1+iota)*D2e - N2, 0) / u`
+   - If D2e (expected demand) drops, Kd drops significantly
+   - Can fall below current capital K, making EId = 0
 
-## Three Critical Fixes
+2. **Substitution Investment**: Initially, no machines meet scrapping criteria
+   - All vintages are brand new (age=1 when eta=20)
+   - No productivity improvements yet (all A=1.0 initially)
+   - Result: machines_to_scrap = 0, hence SId = 0
 
-### Fix #1: Initial Employment
-**Problem**: All workers unemployed at t=0  
-**Solution**: Added initial hiring function  
-**Result**: ~95% employment from start
+3. **Total Investment**: Id = EId + SId = 0 + 0 = 0
+   - Sector 1 receives zero orders (D1=0)
+   - No production → No sales → No R&D → No hiring
+   - Unemployment reaches 100%
 
+### Secondary Issue: Incorrect Initial GDP
+
+The initialization function calculated GDP as:
 ```julia
-# BEFORE: No initial hiring
-function initialize_model(params)
-    # ... create firms and workers
-    return model  # Workers all unemployed!
-end
-
-# AFTER: Initial hiring added
-function initialize_model(params)
-    # ... create firms and workers
-    perform_initial_hiring!(model)  # ← NEW!
-    update_employment_statistics!(model)
-    return model
-end
+initial_gdp = params.NW10 * params.F10 + params.NW20 * params.F20
 ```
 
-### Fix #2: Firm Entry
-**Problem**: Only 5% entry probability  
-**Solution**: Proper market-based entry calculation  
-**Result**: Balanced entry/exit dynamics
+This only uses parameter values and doesn't reflect actual initialized capital and production capacity.
 
+## Fixes Applied
+
+### 1. Investment Logic Safeguards (firm2_behavior.jl)
+
+**Fix 1a: Conditional Kd Floor**
 ```julia
-# BEFORE: Too simple
-entry_prob = params.omicron * 0.1  # 5% per period
-if rand() < entry_prob
-    create_entrant_firm1!(model)
-end
-
-# AFTER: Market-based calculation
-random_component = params.x2inf + rand() * (params.x2sup - params.x2inf)
-base_entry = F1_current * ((1 - params.omicron) * random_component + 
-                           params.omicron * 0.05)
-# Apply stickiness...
-# Enforce limits...
-for _ in 1:k1
-    create_entrant_firm1!(model)
-end
-```
-
-### Fix #3: NaN Safety
-**Problem**: Division by zero possible  
-**Solution**: Comprehensive safety checks  
-**Result**: No NaN propagation
-
-```julia
-# BEFORE: Unsafe division
-if model.Ls > 0
-    L1rdN = firm.L1rd * params.Ls0 / model.Ls
+if model.t <= 10 || Kd_from_expectations < firm.K * 0.5
+    firm.Kd = max(Kd_from_expectations, firm.K * 0.6)
 else
-    L1rdN = firm.L1rd * params.Ls0 / params.Ls0  # Still divides!
-end
-
-# AFTER: Safe with guards
-if model.Ls > 0 && params.Ls0 > 0
-    L1rdN = firm.L1rd * params.Ls0 / model.Ls
-else
-    L1rdN = firm.L1rd  # Fallback
-end
-if !isfinite(L1rdN) || L1rdN < 0
-    L1rdN = 0.0  # Safety
+    firm.Kd = Kd_from_expectations
 end
 ```
 
-## Key Metrics Comparison
-
-| Metric | Before | After | Status |
-|--------|--------|-------|--------|
-| Initial Employment | 0% | ~95% | ✅ FIXED |
-| Period 1 GDP | 0 | >0 | ✅ FIXED |
-| Period 50 GDP | NaN | >0 | ✅ FIXED |
-| Final Unemployment | 100% | 5-15% | ✅ FIXED |
-| NaN Occurrences | Many | None | ✅ FIXED |
-| Firm Extinction | Yes | No | ✅ FIXED |
-
-## Files Changed
-
-| File | Lines Added | Lines Modified | Purpose |
-|------|-------------|----------------|---------|
-| `initialization.jl` | +130 | 2 | Initial hiring |
-| `scheduling.jl` | +60 | -14 | Entry logic |
-| `firm1_behavior.jl` | +8 | 4 | NaN guards |
-| **Total** | **~200** | **~20** | **3 fixes** |
-
-## Testing
-
-Run the verification test:
-```bash
-cd julia
-julia --project=. test_fixes_verification.jl
+**Fix 1b: Minimum Replacement Investment**
+```julia
+if firm.SId == 0.0 && K_current > 0 && !isempty(firm.vintages)
+    min_replacement = K_current / params.eta
+    firm.SId = max(firm.SId, min_replacement)
+end
 ```
 
-Expected output:
-```
-✓ No NaN values in GDP or wages
-✓ Firms survived throughout simulation
-✓ Employment remained at reasonable levels
-✓ All economic variables remained non-negative
-✓ Final state is reasonable (GDP>0, Ue<50%)
-
-✓✓✓ ALL TESTS PASSED! ✓✓✓
+**Fix 1c: Safety Net for Operating Firms**
+```julia
+if firm.Id == 0.0 && K_current > 0 && firm.life2cycle > 0
+    firm.Id = m2
+end
 ```
 
-## Root Cause Summary
+### 2. Initial GDP Calculation (initialization.jl)
 
-The model failed because:
+```julia
+initial_C = params.Ls0 * 1.0  # INIWAGE
+total_K = sum(model[fid].K for fid in model.firm2_ids; init=0.0)
+initial_I = total_K / params.eta
+initial_gdp = initial_C + initial_I
+```
 
-1. **No workers hired initially** → Firms couldn't produce → Zero revenue
-2. **Firms went bankrupt** → Not enough new firms entering → All firms died
-3. **Once all firms died** → 100% unemployment → Division by zero → NaN everywhere
+### 3. API Update (test_fixed_model.jl)
 
-The fixes address each step of this cascade:
+Changed from deprecated `Agents.step!(model, agent_step!, model_step!)` to `Agents.step!(model, 1)`.
 
-1. **Initial hiring** → Firms can produce from day 1
-2. **Proper entry** → Firm population stays healthy
-3. **NaN guards** → Even if problems occur, no cascade
+## Files Modified
 
-## Documentation
+1. `julia/src/firm2_behavior.jl` - Investment logic with safeguards
+2. `julia/src/initialization.jl` - Correct initial GDP calculation
+3. `julia/test_fixed_model.jl` - Updated API call
+4. `julia/test_diagnostics.jl` - NEW: Diagnostic test script
 
-- `COMPLETE_FIX_REPORT.md` - Full technical details
-- `test_fixes_verification.jl` - Comprehensive test
-- This file - Quick reference
+## Next Steps
 
-## Status
-
-**✅ COMPLETE** - All critical bugs fixed and verified
+Run tests to validate fixes:
+1. `julia test_diagnostics.jl` - Detailed investment dynamics
+2. `julia test_first_periods.jl` - Small model validation
+3. `julia test_fixed_model.jl` - Large model validation
