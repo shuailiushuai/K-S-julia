@@ -280,9 +280,43 @@ For questions about:
 
 ## Changelog
 
+### Version 1.1 (Mesa 3.0 Migration)
+- **BREAKING**: Migrated from Mesa 2.x to Mesa 3.0+
+- Replaced deprecated `mesa.time` schedulers with `AgentSet` functionality
+- Updated `Agent.__init__()` signature (now `super().__init__(model)` instead of `super().__init__(unique_id, model)`)
+- Added `unique_id` as explicit attribute in agent classes
+- Replaced scheduler-based agent iteration with `model.get_agents_of_type(AgentType)`
+- Updated agent removal to use `agent.remove()` method
+- Fixed matplotlib backend to prevent hanging in non-GUI environments
+- All tests passing with Mesa 3.3.0
+
 ### Version 1.0 (Initial Release)
 - Complete agent classes (Worker, Firm1, Firm2, Bank)
 - Full model scheduling implementation
 - Basic visualization and statistics
 - Parameter configuration
 - Documentation and examples
+
+## Mesa 3.0 Compatibility Notes
+
+This implementation is compatible with Mesa 3.0+ and uses the new AgentSet API. Key changes from Mesa 2.x:
+
+1. **No Schedulers**: Replaced `RandomActivation`, `BaseScheduler` etc. with direct iteration over `model.agents`
+2. **Agent Registration**: Agents automatically register with model on creation
+3. **Agent Type Selection**: Use `model.get_agents_of_type(AgentClass)` to get agents by type
+4. **Steps Counter**: Access via `model.steps` (automatically incremented)
+5. **Agent Removal**: Use `agent.remove()` instead of `scheduler.remove(agent)`
+
+Example migration pattern:
+```python
+# Mesa 2.x (OLD)
+self.schedule = mesa.time.RandomActivation(self)
+self.schedule.add(agent)
+for agent in self.schedule.agents:
+    agent.step()
+
+# Mesa 3.0+ (NEW)
+# Agents auto-register on creation
+for agent in self.get_agents_of_type(AgentClass):
+    agent.step()
+```
