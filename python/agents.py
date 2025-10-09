@@ -365,11 +365,21 @@ class Firm(mesa.Agent):
         worker.vintage = vintage
         self.workers.append(worker)
         self.L = len(self.workers)
+        
+        # CRITICAL FIX: Add worker to vintage's worker list
+        if vintage is not None:
+            if worker not in vintage.workers:
+                vintage.workers.append(worker)
     
     def fire_worker(self, worker: Worker):
         """Fire a worker"""
         if worker in self.workers:
             self.workers.remove(worker)
+            
+            # CRITICAL FIX: Remove worker from vintage's worker list
+            if worker.vintage is not None and worker in worker.vintage.workers:
+                worker.vintage.workers.remove(worker)
+            
             worker.employer = None
             worker.employed = 0
             worker.vintage = None

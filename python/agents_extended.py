@@ -83,6 +83,12 @@ class Firm2(Firm):
         # Use correct initial price
         self.c2 = self.model.c20
         self.p2 = self.model.p20
+        
+        # CRITICAL FIX: Initialize expected demand based on capacity
+        # Following C++ code: _D2e = u * _K
+        self.D2e = self.model.u * self.K * self.model.m2
+        self.D2d = self.D2e  # Also set desired demand
+        self.D2 = 0  # Actual demand fulfilled starts at 0
     
     def receive_brochure(self, supplier: Firm1):
         """Receive machine brochure from supplier"""
@@ -132,43 +138,51 @@ class Firm2(Firm):
     def form_expectations(self):
         """Form demand expectations"""
         if self.life_cycle < 3:
-            # Entrant: optimistic expectations
-            self.D2e = max(self.D2d, self.D2e) if self.D2e > 0 else max(self.D2d, 1)
+            # Entrant: optimistic expectations based on actual or desired demand
+            self.D2e = max(self.D2d, self.D2e, self.D2) if self.D2e > 0 else max(self.D2d, self.D2, 1)
             return
         
         e0 = self.model.e0
         mode = ExpectationMode(self.model.flagExpect)
         
         if mode == ExpectationMode.MYOPIC_1_PERIOD:
-            # Simple myopic
+            # Simple myopic - mix of fulfilled and desired demand
             D_mixed = (1 - e0) * self.D2 + e0 * self.D2d
-            self.D2e = max(D_mixed, self.D2)
+            self.D2e = max(D_mixed, self.D2, 1)  # Never go below fulfilled demand
         
         elif mode == ExpectationMode.MYOPIC_4_PERIOD:
             # 4-period weighted average (simplified)
-            self.D2e = self.D2  # Simplified
+            self.D2e = max(self.D2, 1)  # Simplified - at least maintain current
         
         elif mode == ExpectationMode.ACCELERATING:
-            # Accelerating expectations
+            # Accelerating expectations with bounds
             if self.D2 > 0:
-                growth = (self.D2 - self.D2e) / self.D2
+                growth = (self.D2 - self.D2e) / max(self.D2, 0.01)
+                # Limit growth rate to prevent explosions
+                growth = np.clip(growth, -0.5, 0.5)
                 self.D2e = self.D2 * (1 + self.model.e5 * growth)
             else:
-                self.D2e = self.D2
+                self.D2e = max(self.D2, 1)
         
         elif mode == ExpectationMode.ADAPTIVE:
             # Adaptive expectations
             self.D2e = self.D2e + self.model.e6 * (self.D2 - self.D2e)
         
         elif mode == ExpectationMode.EXTRAPOLATIVE_ACCELERATING:
-            # Extrapolative
+            # Extrapolative with bounds
             if self.D2 > 0:
                 growth = (self.D2 - self.D2e) / max(self.D2, 0.01)
+                # Limit growth rate to prevent explosions
+                growth = np.clip(growth, -0.5, 0.5)
                 self.D2e = self.D2 * (1 + self.model.e7 * growth + self.model.e8 * growth**2)
             else:
-                self.D2e = self.D2
+                self.D2e = max(self.D2, 1)
         
-        self.D2e = max(self.D2e, 0)
+        # Ensure expectations are positive and bounded
+        self.D2e = max(self.D2e, 1)
+        # Limit extreme expectations to prevent crashes
+        if self.D2 > 0:
+            self.D2e = np.clip(self.D2e, self.D2 * 0.1, self.D2 * 10)
     
     def plan_production(self):
         """Plan production and investment"""
@@ -190,15 +204,57 @@ class Firm2(Firm):
         else:
             self.Kd = self.K
         
-        # Investment demand
-        Id = max(self.Kd - self.K, 0)  # Expansion
+        # Investment demand for expansion
+        Id = max(self.Kd - self.K, 0)  # Expansion only
         
-        # Replacement investment (scrapping by payback period)
+        # CRITICAL FIX: Replacement investment following C++ logic
+        # Scrap machines that are either:
+        # 1. Beyond technical lifetime (age > eta), OR
+        # 2. Economically obsolete (payback < b for replacement)
+        t = self.model.steps
+        w2avg = self.model.get_sector2_avg_wage()
+        
         for vintage in self.vintages[:]:
-            if vintage.age >= self.model.b:
+            vintage.age = t - vintage.t0
+            
+            # Check technical lifetime
+            if vintage.age > self.model.eta:
+                # Out of technical life - must scrap
                 Id += vintage.machines
                 self.K -= vintage.machines
                 self.vintages.remove(vintage)
+            elif self.supplier:
+                # Check economic replacement (payback period)
+                # Calculate cost advantage of new machines
+                new_A = self.supplier.Atau
+                old_A = vintage.A
+                
+                if w2avg > 0 and new_A > old_A:
+                    cost_savings = w2avg / old_A - w2avg / new_A
+                    if cost_savings > 0:
+                        payback = (self.supplier.p1 / self.model.m2) / cost_savings
+                        if payback < self.model.b:
+                            # Economically worthwhile to replace
+                            Id += vintage.machines
+                            self.K -= vintage.machines
+                            self.vintages.remove(vintage)
+        
+        # Ensure K doesn't go negative
+        self.K = max(self.K, 0)
+        
+        # If no vintages left, add minimal capital
+        if len(self.vintages) == 0 and self.supplier:
+            min_machines = 1
+            new_vintage = Vintage(
+                IDvint=t * 10000 + self.supplier.ID,
+                t0=t,
+                supplier_id=self.supplier.ID,
+                A=self.supplier.Atau,
+                machines=min_machines
+            )
+            self.vintages.append(new_vintage)
+            self.K = min_machines
+            Id = max(Id - min_machines, 0)  # Adjust Id since we added machines
         
         # Order machines
         if Id > 0 and self.supplier:
@@ -359,6 +415,13 @@ class Firm2(Firm):
         W2 = sum(w.w for w in self.workers)
         if self.Q2e > 0:
             self.c2 = W2 / self.Q2e
+        else:
+            # No production - maintain previous cost or use average
+            if self.c2 <= 0:
+                self.c2 = self.model.get_avg_unit_cost_sector2()
+        
+        # Ensure unit cost is positive
+        self.c2 = max(self.c2, self.model.w0min * 0.5)
         
         # Adaptive markup
         if self.life_cycle > 1:
@@ -373,8 +436,20 @@ class Firm2(Firm):
             self.f_prev2 = f_prev
             self.f_prev = self.f
         
-        self.mu2 = max(self.mu2, 0)
-        self.p2 = (1 + self.mu2) * self.c2 if self.c2 > 0 else self.model.w0min
+        # Bound markup to prevent extreme prices
+        self.mu2 = np.clip(self.mu2, 0.01, 2.0)
+        
+        # Calculate price with safety bounds
+        self.p2 = (1 + self.mu2) * self.c2
+        
+        # Ensure price is reasonable
+        avg_price = self.model.get_avg_price_sector2()
+        if avg_price > 0:
+            # Prevent extreme price deviations
+            self.p2 = np.clip(self.p2, avg_price * 0.1, avg_price * 10)
+        else:
+            # Fallback if no valid average
+            self.p2 = max(self.p2, self.model.w0min)
     
     def update_competitiveness(self):
         """Update firm competitiveness"""
@@ -438,8 +513,8 @@ class Firm2(Firm):
         """Receive machines from supplier"""
         if quantity > 0 and self.supplier:
             new_vintage = Vintage(
-                IDvint=self.model.schedule.steps * 10000 + self.supplier.ID,
-                t0=self.model.schedule.steps,
+                IDvint=self.model.steps * 10000 + self.supplier.ID,
+                t0=self.model.steps,
                 supplier_id=self.supplier.ID,
                 A=self.supplier.Atau,
                 machines=quantity
