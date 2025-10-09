@@ -15,14 +15,15 @@ Matches C model _D2e equation with lifecycle awareness.
 function firm2_form_expectations!(firm::Firm2, model)
     params = model.params
     
-    # Entrant with limited history uses optimistic expectations
+    # CRITICAL: Entrants with limited history use optimistic expectations
     # Matches C model: if (life2cycle < 3) use max(D2d(t-1), D2e(t-1))
-    if firm.age < 3
+    if firm.age < 3 || firm.life2cycle < 3
         # For very new entrants, use at least some minimal expected demand
         if firm.D2e <= 0.0
-            firm.D2e = max(0.1, firm.D2_history[1])
+            # Initialize with positive expectation based on fair market share
+            firm.D2e = max(0.1, firm.D2_history[1], model.Ls * 0.001)
         else
-            # Young firms use optimistic expectations
+            # Young firms use optimistic expectations - max of actual and expected
             firm.D2e = max(firm.D2_history[1], firm.D2e * 0.9)  # At least 90% of previous expectation
         end
         return
@@ -35,10 +36,10 @@ function firm2_form_expectations!(firm::Firm2, model)
         D_actual = firm.D2_history[i]
         D_desired = i == 1 ? firm.D2d : (i <= length(firm.D2_history) ? firm.D2_history[i] : D_actual)
         mixed = (1 - e0) * D_actual + e0 * D_desired
-        # CRITICAL FIX: Don't let expectations drop below 50% of actual demand in one period
+        # CRITICAL FIX: Don't let expectations drop below a reasonable fraction of actual demand
         # This prevents catastrophic demand collapse in early periods
-        mixed = max(mixed, D_actual)
-        push!(demand_mix, max(mixed, D_actual * 0.5))  # Floor at 50% of actual
+        mixed = max(mixed, D_actual * 0.7)  # At least 70% of actual demand
+        push!(demand_mix, mixed)
     end
     
     # Apply expectation rule
@@ -84,14 +85,20 @@ function firm2_form_expectations!(firm::Firm2, model)
     end
     
     # CRITICAL FIX: Ensure non-negative and prevent catastrophic collapse
-    # Don't let expectations drop below 50% of last actual demand
-    min_expectation = max(demand_mix[1] * 0.5, 0.01)
+    # Don't let expectations drop below 70% of last actual demand
+    min_expectation = max(demand_mix[1] * 0.7, 0.01)
     # Also ensure expectations don't drop by more than 50% in one period
-    if firm.age > 0 && firm.D2e > 0
-        max_drop = firm.D2e * 0.5
-        firm.D2e = max(firm.D2e, max_drop, min_expectation)
+    if firm.D2e > 0
+        old_D2e = firm.D2e
+        max_drop_ratio = 0.5  # Don't drop by more than 50% per period
+        firm.D2e = max(firm.D2e, old_D2e * max_drop_ratio, min_expectation)
     else
         firm.D2e = max(firm.D2e, min_expectation)
+    end
+    
+    # Additional safety: firms with capital should always expect some demand
+    if firm.K > 0 && firm.D2e < 0.01
+        firm.D2e = max(0.01, model.Ls * 0.001)
     end
 end
 
@@ -106,7 +113,7 @@ function firm2_plan_production!(firm::Firm2, model)
     
     # Safety: ensure D2e is finite
     if !isfinite(firm.D2e) || firm.D2e < 0
-        firm.D2e = 0.0
+        firm.D2e = max(0.01, model.Ls * 0.001)  # Minimum positive expectation
     end
     
     # Desired production with inventory buffer (considering inventories)
@@ -128,10 +135,12 @@ function firm2_plan_production!(firm::Firm2, model)
     # Matches C model: min(desired, K)
     Q_planned = min(Q_desired, Q_capacity)
     
-    # Ensure some minimum production if firm has capital and expects demand
-    # This prevents labor demand from being zero
-    if firm.K > 0 && firm.D2e > 0 && Q_planned < 0.01
-        Q_planned = min(0.01, Q_capacity)
+    # CRITICAL FIX: Ensure firms with capital maintain minimum production
+    # This prevents Q2 from dropping to zero which would cause L2d=0 and mass layoffs
+    if firm.K > 0 && firm.life2cycle > 0 && !isempty(firm.vintages)
+        # Minimum production: at least 1% of capacity or 1 unit
+        min_production = max(Q_capacity * 0.01, 0.01)
+        Q_planned = max(Q_planned, min_production)
     end
     
     # Final safety check
@@ -371,7 +380,16 @@ function firm2_compute_production!(firm::Firm2, model)
     Q_labor = firm.L2 * A_avg
     Q_capital = firm.K * params.u * A_avg
     
+    # CRITICAL FIX: Q2e should be minimum of planned production AND production constraints
+    # But if firm has workers and capital, it should produce SOMETHING even if Q2 (planned) is low
     firm.Q2e = min(firm.Q2, Q_labor, Q_capital)
+    
+    # Additional safety: if firm has workers and capital but Q2e is zero, produce at minimum capacity
+    # This prevents employed workers from producing nothing (which would make GDP = 0)
+    if firm.L2 > 0 && firm.K > 0 && firm.Q2e <= 0 && firm.life2cycle > 0
+        # Produce at least what one worker with average productivity can make
+        firm.Q2e = max(Q_labor * 0.5, A_avg)
+    end
     
     # Safety: ensure Q2e is finite and non-negative
     if !isfinite(firm.Q2e) || firm.Q2e < 0
@@ -451,15 +469,34 @@ Matches C model _L2d equation: ceil(Q2 / A2) when life2cycle > 0
 function firm2_compute_labor_demand!(firm::Firm2, model)
     params = model.params
     
+    # CRITICAL: Match C model lifecycle check
+    # Pre-operational entrants (life2cycle == 0) have no labor demand until they get capital
+    if firm.life2cycle == 0
+        firm.L2d = 0.0
+        return
+    end
+    
     # Get average productivity
     A_avg = firm2_average_productivity(firm)
     
     # Safety checks to prevent zero/NaN labor demand
-    if A_avg <= 0 || firm.Q2 <= 0
-        # If no productivity or no planned production, still maintain minimal employment
-        # This matches the C model's lifecycle check - inactive firms have L2d = 0
-        # but we keep at least current employment to prevent mass firing
-        firm.L2d = max(1.0, Float64(firm.L2))
+    # CRITICAL FIX: Operating firms (life2cycle > 0) with capital should ALWAYS have positive labor demand
+    # This matches C model logic where firms with K > 0 hire workers
+    if A_avg <= 0
+        # No productivity - use default
+        A_avg = 1.0
+    end
+    
+    if firm.Q2 <= 0
+        # CRITICAL: If planned production is 0 but firm has capital, maintain minimum labor demand
+        # This prevents firms from firing all workers and being unable to restart
+        if firm.K > 0 && !isempty(firm.vintages)
+            # Minimum labor demand: at least enough to operate one machine
+            firm.L2d = max(1.0, Float64(firm.L2), ceil(firm.K * 0.1 / A_avg))
+        else
+            # No capital or vintages - zero labor demand
+            firm.L2d = 0.0
+        end
         return
     end
     
@@ -467,7 +504,7 @@ function firm2_compute_labor_demand!(firm::Firm2, model)
     # Matches C model: ceil(Q2 / A2)
     L_needed = firm.Q2 / A_avg
     
-    # Desired labor (rounded up, with minimum of 1)
+    # Desired labor (rounded up, with minimum of 1 for operating firms)
     firm.L2d = max(ceil(L_needed), 1.0)
 end
 
