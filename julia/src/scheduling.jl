@@ -169,7 +169,7 @@ function model_step!(model)
     
     # Update average prices
     if !isempty(model.firm1_ids)
-        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid)]
+        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid) && isfinite(model[fid].p1)]
         model.p1avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.PPI = model.p1avg
     end
@@ -182,7 +182,7 @@ function model_step!(model)
     end
     
     if !isempty(model.firm2_ids)
-        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid)]
+        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid) && isfinite(model[fid].p2)]
         model.p2avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
         model.CPI = model.p2avg
     end
