@@ -92,6 +92,11 @@ Matches C model _Q2d and _Q2 equations.
 function firm2_plan_production!(firm::Firm2, model)
     params = model.params
     
+    # Safety: ensure D2e is finite
+    if !isfinite(firm.D2e) || firm.D2e < 0
+        firm.D2e = 0.0
+    end
+    
     # Desired production with inventory buffer (considering inventories)
     # Matches C model: (1 + iota) * D2e - N(t-1)
     Q_desired = max((1 + params.iota) * firm.D2e - firm.N2, 0.0)
@@ -102,6 +107,11 @@ function firm2_plan_production!(firm::Firm2, model)
     A_avg = firm2_average_productivity(firm)
     Q_capacity = firm.K * params.u * A_avg
     
+    # Safety: ensure Q_capacity is finite
+    if !isfinite(Q_capacity) || Q_capacity < 0
+        Q_capacity = 0.0
+    end
+    
     # Planned production limited by capital (before considering labor/finance)
     # Matches C model: min(desired, K)
     Q_planned = min(Q_desired, Q_capacity)
@@ -110,6 +120,11 @@ function firm2_plan_production!(firm::Firm2, model)
     # This prevents labor demand from being zero
     if firm.K > 0 && firm.D2e > 0 && Q_planned < 0.01
         Q_planned = min(0.01, Q_capacity)
+    end
+    
+    # Final safety check
+    if !isfinite(Q_planned) || Q_planned < 0
+        Q_planned = 0.0
     end
     
     firm.Q2 = Q_planned
@@ -125,13 +140,20 @@ function firm2_average_productivity(firm::Firm2)
         return 1.0
     end
     
-    total_machines = sum(v.machines for v in values(firm.vintages))
+    total_machines = sum(v.machines for v in values(firm.vintages); init=0)
     if total_machines == 0
         return 1.0
     end
     
-    weighted_A = sum(v.A * v.machines for v in values(firm.vintages))
-    return weighted_A / total_machines
+    weighted_A = sum(v.A * v.machines for v in values(firm.vintages); init=0.0)
+    avg = weighted_A / total_machines
+    
+    # Safety: ensure result is finite and positive
+    if !isfinite(avg) || avg <= 0
+        return 1.0
+    end
+    
+    return avg
 end
 
 """
@@ -315,10 +337,21 @@ function firm2_produce!(firm::Firm2, model)
     
     # Effective production limited by labor
     A_avg = firm2_average_productivity(firm)
+    
+    # Safety: ensure A_avg is finite and positive
+    if !isfinite(A_avg) || A_avg <= 0
+        A_avg = 1.0
+    end
+    
     Q_labor = firm.L2 * A_avg
     Q_capital = firm.K * params.u * A_avg
     
     firm.Q2e = min(firm.Q2, Q_labor, Q_capital)
+    
+    # Safety: ensure Q2e is finite and non-negative
+    if !isfinite(firm.Q2e) || firm.Q2e < 0
+        firm.Q2e = 0.0
+    end
     
     # Sales (match to demand, limited by production + inventory)
     available = firm.Q2e + firm.N2
