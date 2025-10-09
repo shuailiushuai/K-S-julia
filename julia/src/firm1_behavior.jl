@@ -235,8 +235,18 @@ function firm1_set_price!(firm::Firm1, model)
         firm.c1 = firm.w1 / 0.1  # Fallback cost
     end
     
-    # Price with fixed markup (ensure positive)
-    firm.p1 = max((1 + params.mu1) * firm.c1, 0.01)  # Minimum price floor
+    # Safety: ensure c1 is finite and positive
+    if !isfinite(firm.c1) || firm.c1 <= 0
+        firm.c1 = firm.w1
+    end
+    
+    # Price with fixed markup (ensure positive and finite)
+    firm.p1 = (1 + params.mu1) * firm.c1
+    
+    # Final safety checks
+    if !isfinite(firm.p1) || firm.p1 <= 0
+        firm.p1 = max(model.wMin * 2, 0.01)  # Fallback price
+    end
 end
 
 """

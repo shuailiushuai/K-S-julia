@@ -10,13 +10,20 @@ Corresponds to fun_KS_firm2.h in C model.
     firm2_form_expectations!(firm::Firm2, model)
 
 Form adaptive demand expectations.
+Matches C model _D2e equation with lifecycle awareness.
 """
 function firm2_form_expectations!(firm::Firm2, model)
     params = model.params
     
     # Entrant with limited history uses optimistic expectations
+    # Matches C model: if (life2cycle < 3) use max(D2d(t-1), D2e(t-1))
     if firm.age < 3
-        firm.D2e = max(firm.D2_history[1], firm.D2e, 0.01)  # Minimum floor
+        # For very new entrants, use at least some minimal expected demand
+        if firm.D2e <= 0.0
+            firm.D2e = max(0.1, firm.D2_history[1])
+        else
+            firm.D2e = max(firm.D2_history[1], firm.D2e)
+        end
         return
     end
     
@@ -73,26 +80,39 @@ function firm2_form_expectations!(firm::Firm2, model)
     end
     
     # Ensure non-negative and not less than last period, with minimum floor
-    firm.D2e = max(firm.D2e, demand_mix[1], 0.01)  # Minimum floor to prevent 0 demand
+    firm.D2e = max(firm.D2e, demand_mix[1] * 0.5, 0.01)  # At least 50% of last actual demand
 end
 
 """
     firm2_plan_production!(firm::Firm2, model)
 
 Plan production based on expected demand.
+Matches C model _Q2d and _Q2 equations.
 """
 function firm2_plan_production!(firm::Firm2, model)
     params = model.params
     
-    # Desired production with inventory buffer
-    Q_desired = firm.D2e * (1 + params.iota)
+    # Desired production with inventory buffer (considering inventories)
+    # Matches C model: (1 + iota) * D2e - N(t-1)
+    Q_desired = max((1 + params.iota) * firm.D2e - firm.N2, 0.0)
     
-    # Production capacity
+    # Production capacity based on capital stock
+    # Matches C model: min(Q_desired, K)
+    # Note: K represents machines, each can produce `u` units per period with avg productivity
     A_avg = firm2_average_productivity(firm)
     Q_capacity = firm.K * params.u * A_avg
     
-    # Planned production (with minimum floor)
-    firm.Q2 = max(min(Q_desired, Q_capacity), 0.01)  # Minimum floor
+    # Planned production limited by capital (before considering labor/finance)
+    # Matches C model: min(desired, K)
+    Q_planned = min(Q_desired, Q_capacity)
+    
+    # Ensure some minimum production if firm has capital and expects demand
+    # This prevents labor demand from being zero
+    if firm.K > 0 && firm.D2e > 0 && Q_planned < 0.01
+        Q_planned = min(0.01, Q_capacity)
+    end
+    
+    firm.Q2 = Q_planned
 end
 
 """
@@ -324,6 +344,11 @@ function firm2_set_price!(firm::Firm2, model)
         firm.c2 = firm.w2 / 1.0  # Fallback
     end
     
+    # Safety: ensure c2 is finite and positive
+    if !isfinite(firm.c2) || firm.c2 <= 0
+        firm.c2 = firm.w2
+    end
+    
     # Adjust markup based on market share change
     if firm.age > 0
         # Market share growth
@@ -337,28 +362,42 @@ function firm2_set_price!(firm::Firm2, model)
         firm.mu2 = clamp(firm.mu2 + markup_change, 0.0, 1.0)
     end
     
-    # Price (ensure positive)
-    firm.p2 = max((1 + firm.mu2) * firm.c2, 0.01)  # Minimum price floor
+    # Price (ensure positive and finite)
+    firm.p2 = (1 + firm.mu2) * firm.c2
+    
+    # Final safety checks
+    if !isfinite(firm.p2) || firm.p2 <= 0
+        firm.p2 = max(model.wMin * 2, 0.01)  # Fallback price
+    end
 end
 
 """
     firm2_compute_labor_demand!(firm::Firm2, model)
 
 Compute desired labor for production.
+Matches C model _L2d equation: ceil(Q2 / A2) when life2cycle > 0
 """
 function firm2_compute_labor_demand!(firm::Firm2, model)
     params = model.params
     
-    # Labor needed for desired production
+    # Get average productivity
     A_avg = firm2_average_productivity(firm)
-    if A_avg > 0
-        L_needed = firm.Q2 / A_avg
-        
-        # Desired labor (rounded up, with minimum of 1)
-        firm.L2d = max(ceil(L_needed), 1.0)  # At least 1 worker
-    else
-        firm.L2d = 1.0  # Minimum constraint even if no productivity
+    
+    # Safety checks to prevent zero/NaN labor demand
+    if A_avg <= 0 || firm.Q2 <= 0
+        # If no productivity or no planned production, still maintain minimal employment
+        # This matches the C model's lifecycle check - inactive firms have L2d = 0
+        # but we keep at least current employment to prevent mass firing
+        firm.L2d = max(1.0, Float64(firm.L2))
+        return
     end
+    
+    # Labor needed for planned production
+    # Matches C model: ceil(Q2 / A2)
+    L_needed = firm.Q2 / A_avg
+    
+    # Desired labor (rounded up, with minimum of 1)
+    firm.L2d = max(ceil(L_needed), 1.0)
 end
 
 """

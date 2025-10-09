@@ -169,6 +169,11 @@ function compute_wage_offer(firm, model)
     # Base wage (average or minimum)
     base_wage = is_firm1 ? firm.w1 : firm.w2
     
+    # Safety: ensure base wage is finite and positive
+    if !isfinite(base_wage) || base_wage <= 0
+        base_wage = model.wMin
+    end
+    
     if params.flagWageOffer == 0
         # Propose premium based on productivity/profit
         premium = 0.0
@@ -193,18 +198,26 @@ function compute_wage_offer(firm, model)
         for wid in firm.applications
             if Agents.hasid(model, wid)
                 worker = model[wid]
-                min_res_wage = max(min_res_wage, worker.wRes)
+                if isfinite(worker.wRes) && worker.wRes > 0
+                    min_res_wage = max(min_res_wage, worker.wRes)
+                end
             end
         end
         w_offer = min_res_wage
     end
     
     # Cap wage change
-    if params.wCap > 0
+    if params.wCap > 0 && params.wCap >= 1.0
         w_offer = clamp(w_offer, base_wage / params.wCap, base_wage * params.wCap)
     end
     
-    return max(w_offer, model.wMin)
+    # Final safety checks
+    w_offer = max(w_offer, model.wMin)
+    if !isfinite(w_offer) || w_offer <= 0
+        w_offer = model.wMin
+    end
+    
+    return w_offer
 end
 
 """
@@ -361,9 +374,15 @@ function update_employment_statistics!(model)
         model.Ue = 1.0  # All unemployed if no labor force
     end
     
-    # Average wage
-    wages = [model[wid].w for wid in model.worker_ids if model[wid].employed > 0]
+    # Average wage (only from employed workers with finite wages)
+    wages = [model[wid].w for wid in model.worker_ids 
+             if model[wid].employed > 0 && isfinite(model[wid].w)]
     model.wAvg = isempty(wages) ? model.wMin : mean(wages)
+    
+    # Safety check: ensure wAvg is finite and positive
+    if !isfinite(model.wAvg) || model.wAvg <= 0
+        model.wAvg = model.wMin
+    end
 end
 
 """
