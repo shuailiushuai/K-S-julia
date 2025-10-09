@@ -93,7 +93,8 @@ function collect_taxes!(model)
     for fid in model.firm1_ids
         if hasid(model, fid)
             firm = model[fid]
-            revenue = firm.S1 * firm.p1
+            # S1 is already revenue in currency units, don't multiply by price again
+            revenue = firm.S1
             cost = firm.L1 * firm.w1 + firm.Deb1 * model.rDeb
             profit = max(0.0, revenue - cost)
             tax = profit * params.tr
@@ -104,7 +105,8 @@ function collect_taxes!(model)
     for fid in model.firm2_ids
         if hasid(model, fid)
             firm = model[fid]
-            revenue = firm.S2 * firm.p2
+            # S2 is already revenue in currency units, don't multiply by price again
+            revenue = firm.S2
             cost = firm.L2 * firm.w2 + firm.Deb2 * model.rDeb
             profit = max(0.0, revenue - cost)
             tax = profit * params.tr

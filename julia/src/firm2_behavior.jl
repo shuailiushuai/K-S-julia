@@ -380,6 +380,10 @@ function firm2_produce!(firm::Firm2, model)
     available = firm.Q2e + firm.N2
     quantity_sold = min(available, firm.D2)
     
+    # Track unfilled demand in quantity units (for competitiveness calculation)
+    # Matches C model: _l2 = demand - supply when rationed
+    firm.l2 = max(0.0, firm.D2 - quantity_sold)
+    
     # CRITICAL FIX: S2 must be REVENUE (quantity * price), not just quantity
     # This is nominal sales in currency units, used for GDP calculation
     firm.S2 = quantity_sold * firm.p2
@@ -464,21 +468,31 @@ end
     firm2_compute_competitiveness!(firm::Firm2, model)
 
 Compute firm competitiveness for replicator dynamics.
+Matches C model _E equation.
 """
 function firm2_compute_competitiveness!(firm::Firm2, model)
     params = model.params
     
     # Normalize price (lower is better)
+    # C model: 0.1 + 0.8 * (p2 - p2min) / (p2max - p2min)
+    # Simplified: use deviation from average
     price_norm = 1 - (firm.p2 - model.p2avg) / max(model.p2avg, 1e-10)
     
     # Unfilled demand (lower is better)
-    unfilled = firm.D2 > 0 ? (firm.D2 - firm.S2) / firm.D2 : 0.0
-    unfilled_norm = 1 - unfilled
+    # Matches C model: uses _l2 (unfilled demand in quantity units)
+    # Normalize by total demand to get ratio
+    if firm.D2 > 0
+        unfilled_ratio = firm.l2 / firm.D2
+    else
+        unfilled_ratio = 0.0
+    end
+    unfilled_norm = 1 - unfilled_ratio
     
     # Quality (not implemented in basic version, set to 0)
     quality_norm = 0.0
     
     # Weighted competitiveness
+    # Matches C model: omega1*(1-price_norm) + omega2*(1-unfilled_norm) + omega3*quality
     firm.competitiveness = (params.omega1 * price_norm + 
                            params.omega2 * unfilled_norm + 
                            params.omega3 * quality_norm)

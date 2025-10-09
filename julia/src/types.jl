@@ -155,6 +155,7 @@ Represents a consumption-good firm (sector 2) in the K+S model.
     D2d::Float64 = 0.0
     D2_history::Vector{Float64} = Float64[]
     S2::Float64 = 0.0
+    l2::Float64 = 0.0  # Unfilled demand in quantity units
     N2::Float64 = 0.0
     K::Float64 = 0.0
     Kd::Float64 = 0.0
