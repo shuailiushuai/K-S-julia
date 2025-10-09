@@ -36,8 +36,16 @@ function agent_step!(agent::Firm1, model)
     if isempty(agent.worker_ids)
         agent.w1 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
-        agent.w1 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w) && model[wid].w > 0]
+        if isempty(valid_wages)
+            agent.w1 = model.wMin
+        else
+            agent.w1 = mean(valid_wages)
+            # Safety: ensure wage is finite and positive
+            if !isfinite(agent.w1) || agent.w1 <= 0
+                agent.w1 = model.wMin
+            end
+        end
     end
 end
 
@@ -58,8 +66,16 @@ function agent_step!(agent::Firm2, model)
     if isempty(agent.worker_ids)
         agent.w2 = model.wMin
     else
-        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w)]
-        agent.w2 = isempty(valid_wages) ? model.wMin : mean(valid_wages)
+        valid_wages = [model[wid].w for wid in agent.worker_ids if Agents.hasid(model, wid) && isfinite(model[wid].w) && model[wid].w > 0]
+        if isempty(valid_wages)
+            agent.w2 = model.wMin
+        else
+            agent.w2 = mean(valid_wages)
+            # Safety: ensure wage is finite and positive
+            if !isfinite(agent.w2) || agent.w2 <= 0
+                agent.w2 = model.wMin
+            end
+        end
     end
 end
 
@@ -169,8 +185,16 @@ function model_step!(model)
     
     # Update average prices
     if !isempty(model.firm1_ids)
-        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid) && isfinite(model[fid].p1)]
-        model.p1avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
+        valid_prices = [model[fid].p1 for fid in model.firm1_ids if Agents.hasid(model, fid) && isfinite(model[fid].p1) && model[fid].p1 > 0]
+        if isempty(valid_prices)
+            model.p1avg = 1.0
+        else
+            model.p1avg = mean(valid_prices)
+            # Safety check
+            if !isfinite(model.p1avg) || model.p1avg <= 0
+                model.p1avg = 1.0
+            end
+        end
         model.PPI = model.p1avg
     end
     
@@ -182,8 +206,16 @@ function model_step!(model)
     end
     
     if !isempty(model.firm2_ids)
-        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid) && isfinite(model[fid].p2)]
-        model.p2avg = isempty(valid_prices) ? 1.0 : mean(valid_prices)
+        valid_prices = [model[fid].p2 for fid in model.firm2_ids if Agents.hasid(model, fid) && isfinite(model[fid].p2) && model[fid].p2 > 0]
+        if isempty(valid_prices)
+            model.p2avg = 1.0
+        else
+            model.p2avg = mean(valid_prices)
+            # Safety check
+            if !isfinite(model.p2avg) || model.p2avg <= 0
+                model.p2avg = 1.0
+            end
+        end
         model.CPI = model.p2avg
     end
     

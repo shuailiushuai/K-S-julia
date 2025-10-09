@@ -9,10 +9,38 @@ Implements labor market, capital goods market, consumption goods market.
     labor_market_matching!(model)
 
 Execute labor market search and matching.
+CRITICAL: Matches C model sequence:
+1. Firing happens first (in both sectors)
+2. Workers apply for jobs (to all Firm1, selected Firm2)
+3. Sector 1 hires FIRST from shared application pool
+4. Sector 2 hires SECOND from individual firm queues
 """
 function labor_market_matching!(model)
     params = model.params
     
+    # PHASE 1: FIRING
+    # Fire workers who need to be fired (before hiring)
+    for fid in model.firm1_ids
+        if !Agents.hasid(model, fid)
+            continue
+        end
+        firm = model[fid]
+        if firm.L1 > firm.L1d
+            fire_workers!(firm, model, Int(floor(firm.L1 - firm.L1d)))
+        end
+    end
+    
+    for fid in model.firm2_ids
+        if !Agents.hasid(model, fid)
+            continue
+        end
+        firm = model[fid]
+        if firm.L2 > firm.L2d && can_fire(firm, model)
+            fire_workers!(firm, model, Int(floor(firm.L2 - firm.L2d)))
+        end
+    end
+    
+    # PHASE 2: APPLICATIONS
     # Clear previous applications
     for fid in vcat(model.firm1_ids, model.firm2_ids)
         if Agents.hasid(model, fid)
@@ -20,41 +48,82 @@ function labor_market_matching!(model)
         end
     end
     
-    # Workers apply for jobs
+    # Workers apply for jobs (to ALL Firm1, and selected Firm2)
     for wid in model.worker_ids
         worker = model[wid]
         worker_apply_for_jobs!(worker, model)
     end
     
-    # Determine firm hiring order
-    all_firms = vcat(model.firm1_ids, model.firm2_ids)
-    hiring_order = order_firms_for_hiring(model, all_firms)
+    # PHASE 3: SECTOR 1 HIRING (Capital goods)
+    # Firms in sector 1 share a common application pool
+    # They hire in order based on flagHireSeq
     
-    # Process hiring and firing in order
-    for fid in hiring_order
+    # Collect all unique applicants to sector 1
+    sector1_applicants = Set{Int}()
+    for fid in model.firm1_ids
+        if Agents.hasid(model, fid)
+            union!(sector1_applicants, model[fid].applications)
+        end
+    end
+    
+    # Order sector 1 firms for hiring
+    firm1_order = order_firms_for_hiring(model, model.firm1_ids)
+    
+    # Track which workers have been hired already (to avoid double hiring)
+    hired_workers = Set{Int}()
+    
+    # Sector 1 firms hire from shared pool
+    for fid in firm1_order
         if !Agents.hasid(model, fid)
             continue
         end
         
         firm = model[fid]
-        is_firm1 = isa(firm, Firm1)
+        n_needed = Int(ceil(firm.L1d - firm.L1))
         
-        # Current and desired labor
-        L_current = is_firm1 ? firm.L1 : firm.L2
-        L_desired = is_firm1 ? firm.L1d : firm.L2d
-        
-        if L_desired > L_current
-            # Hiring
-            hire_workers!(firm, model, Int(ceil(L_desired - L_current)))
-        elseif L_desired < L_current
-            # Firing (if allowed)
-            if can_fire(firm, model)
-                fire_workers!(firm, model, Int(floor(L_current - L_desired)))
+        if n_needed > 0
+            # Filter applications to only those still available
+            available_apps = [wid for wid in firm.applications 
+                            if wid ∉ hired_workers && Agents.hasid(model, wid)]
+            
+            if !isempty(available_apps)
+                # Order applications based on hiring rule
+                ordered_apps = order_applications_for_sector1(firm, model, available_apps)
+                
+                # Hire workers
+                n_hired = hire_workers_from_list!(firm, model, ordered_apps, n_needed, hired_workers)
             end
         end
     end
     
-    # Update employment statistics
+    # PHASE 4: SECTOR 2 HIRING (Consumption goods)
+    # Each firm has its own application queue
+    firm2_order = order_firms_for_hiring(model, model.firm2_ids)
+    
+    for fid in firm2_order
+        if !Agents.hasid(model, fid)
+            continue
+        end
+        
+        firm = model[fid]
+        n_needed = Int(ceil(firm.L2d - firm.L2))
+        
+        if n_needed > 0
+            # Filter applications to only those still available
+            available_apps = [wid for wid in firm.applications 
+                            if wid ∉ hired_workers && Agents.hasid(model, wid)]
+            
+            if !isempty(available_apps)
+                # Order applications based on hiring rule
+                ordered_apps = order_applications_for_sector2(firm, model, available_apps)
+                
+                # Hire workers
+                n_hired = hire_workers_from_list!(firm, model, ordered_apps, n_needed, hired_workers)
+            end
+        end
+    end
+    
+    # PHASE 5: UPDATE STATISTICS
     update_employment_statistics!(model)
 end
 
@@ -92,28 +161,79 @@ function order_firms_for_hiring(model, firm_ids)
 end
 
 """
-    hire_workers!(firm, model, n_hire)
+    order_applications_for_sector1(firm, model, applicants)
 
-Hire workers from application queue.
+Order job applications for sector 1 firms based on hiring rule.
 """
-function hire_workers!(firm, model, n_hire)
+function order_applications_for_sector1(firm, model, applicants)
+    params = model.params
+    order_rule = params.flagHireOrder1
+    return order_applications_by_rule(model, applicants, order_rule)
+end
+
+"""
+    order_applications_for_sector2(firm, model, applicants)
+
+Order job applications for sector 2 firms based on hiring rule.
+"""
+function order_applications_for_sector2(firm, model, applicants)
+    params = model.params
+    # Check if post-change firm (would use flagHireOrder2Chg)
+    order_rule = firm.postChg ? params.flagHireOrder2 : params.flagHireOrder2  # Simplified
+    return order_applications_by_rule(model, applicants, order_rule)
+end
+
+"""
+    order_applications_by_rule(model, applicants, order_rule)
+
+Order applications based on specified rule.
+"""
+function order_applications_by_rule(model, applicants, order_rule)
+    if isempty(applicants)
+        return Int[]
+    end
+    
+    if order_rule == 0
+        # Random
+        return Random.shuffle(Agents.abmrng(model), applicants)
+    elseif order_rule == 1 || order_rule == 2
+        # By wage
+        reverse = (order_rule == 1)  # 1=high first, 2=low first
+        return sort(applicants, by = wid -> model[wid].w, rev=reverse)
+    elseif order_rule == 3 || order_rule == 4
+        # By skills
+        reverse = (order_rule == 3)  # 3=high first, 4=low first
+        return sort(applicants, by = wid -> model[wid].s, rev=reverse)
+    elseif order_rule == 7 || order_rule == 8
+        # By tenure
+        reverse = (order_rule == 7)  # 7=old first, 8=new first
+        return sort(applicants, by = wid -> model[wid].Te, rev=reverse)
+    end
+    
+    return Random.shuffle(Agents.abmrng(model), applicants)
+end
+
+"""
+    hire_workers_from_list!(firm, model, applicants, n_needed, hired_set)
+
+Hire workers from an ordered list of applicants.
+Returns number of workers actually hired.
+Updates hired_set to track which workers have been hired.
+"""
+function hire_workers_from_list!(firm, model, applicants, n_needed, hired_set)
     params = model.params
     is_firm1 = isa(firm, Firm1)
     
     # Compute wage offer
     w_offer = compute_wage_offer(firm, model)
     
-    # Order applications based on hiring rule
-    hire_order = is_firm1 ? params.flagHireOrder1 : params.flagHireOrder2
-    ordered_apps = order_applications(firm, model, hire_order)
-    
     hired = 0
-    for wid in ordered_apps
-        if hired >= n_hire
+    for wid in applicants
+        if hired >= n_needed
             break
         end
         
-        if !Agents.hasid(model, wid)
+        if !Agents.hasid(model, wid) || wid ∈ hired_set
             continue
         end
         
@@ -152,9 +272,13 @@ function hire_workers!(firm, model, n_hire)
                 firm.L2 += 1
             end
             
+            # Mark as hired
+            push!(hired_set, wid)
             hired += 1
         end
     end
+    
+    return hired
 end
 
 """
@@ -218,36 +342,6 @@ function compute_wage_offer(firm, model)
     end
     
     return w_offer
-end
-
-"""
-    order_applications(firm, model, order_rule)
-
-Order job applications based on hiring rule.
-"""
-function order_applications(firm, model, order_rule)
-    if isempty(firm.applications)
-        return Int[]
-    end
-    
-    if order_rule == 0
-        # Random
-        return Random.shuffle(Agents.abmrng(model), firm.applications)
-    elseif order_rule == 1 || order_rule == 2
-        # By wage
-        reverse = (order_rule == 1)  # 1=high first, 2=low first
-        return sort(firm.applications, by = wid -> model[wid].w, rev=reverse)
-    elseif order_rule == 3 || order_rule == 4
-        # By skills
-        reverse = (order_rule == 3)  # 3=high first, 4=low first
-        return sort(firm.applications, by = wid -> model[wid].s, rev=reverse)
-    elseif order_rule == 7 || order_rule == 8
-        # By tenure
-        reverse = (order_rule == 7)  # 7=old first, 8=new first
-        return sort(firm.applications, by = wid -> model[wid].Te, rev=reverse)
-    end
-    
-    return Random.shuffle(Agents.abmrng(model), firm.applications)
 end
 
 """

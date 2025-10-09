@@ -10,6 +10,9 @@ Corresponds to fun_KS_worker.h in C model.
     worker_apply_for_jobs!(worker::Worker, model)
 
 Worker submits job applications to firms.
+CRITICAL: Matches C model where:
+- ALL workers apply to a single sector 1 (capital) application pool
+- Workers also apply to selected sector 2 (consumption) firms weighted by market share
 """
 function worker_apply_for_jobs!(worker::Worker, model)
     params = model.params
@@ -31,11 +34,11 @@ function worker_apply_for_jobs!(worker::Worker, model)
         return
     end
     
-    # Number of applications
-    n_apply = worker.employed == 0 ? params.omegaU : params.omega
+    # Number of applications to sector 2 firms (sector 1 always gets one)
+    n_apply_sector2 = worker.employed == 0 ? params.omegaU : params.omega
     
     # Apply search probability (discouragement)
-    n_apply_actual = n_apply * worker.searchProb
+    n_apply_actual = n_apply_sector2 * worker.searchProb
     
     # Round to integer probabilistically
     n_apply_int = floor(Int, n_apply_actual)
@@ -45,30 +48,55 @@ function worker_apply_for_jobs!(worker::Worker, model)
     
     if n_apply_int == 0
         worker.discouraged = true
+        # Still apply to sector 1 even if discouraged for sector 2
+        if !isempty(model.firm1_ids)
+            for fid in model.firm1_ids
+                if Agents.hasid(model, fid)
+                    push!(model[fid].applications, worker.id)
+                end
+            end
+        end
         return
     end
     
     worker.discouraged = false
     
-    # Select firms to apply to (weighted by size)
-    all_firms = vcat(model.firm1_ids, model.firm2_ids)
-    
-    # Weight by number of workers (firm size)
-    weights = Float64[]
-    for fid in all_firms
-        firm = model[fid]
-        L = isa(firm, Firm1) ? firm.L1 : firm.L2
-        push!(weights, max(L, 1.0))
+    # CRITICAL: Apply to ALL Firm1 (sector 1) firms
+    # This matches C model: EXEC_EXTS( GRANDPARENT, countryE, firm1appl, push_back, applData )
+    for fid in model.firm1_ids
+        if Agents.hasid(model, fid)
+            push!(model[fid].applications, worker.id)
+        end
     end
     
-    # Sample firms
-    n_sample = min(n_apply_int, length(all_firms))
-    selected_firms = StatsBase.sample(Agents.abmrng(model), all_firms, Weights(weights), n_sample, replace=false)
-    
-    # Add to firm application queues
-    for fid in selected_firms
-        firm = model[fid]
-        push!(firm.applications, worker.id)
+    # Apply to selected Firm2 (sector 2) firms weighted by market share
+    # This matches C model: firms drawn with probability proportional to market share
+    if !isempty(model.firm2_ids)
+        # Weight by market share (f2), not by firm size
+        weights = Float64[]
+        firm2_valid = Int[]
+        for fid in model.firm2_ids
+            if Agents.hasid(model, fid)
+                firm = model[fid]
+                # Don't apply to current employer if in sector 2
+                if worker.employed != 2 || worker.employer != fid
+                    push!(weights, max(firm.f2, 0.001))  # Minimum weight to avoid zero
+                    push!(firm2_valid, fid)
+                end
+            end
+        end
+        
+        if !isempty(firm2_valid) && sum(weights) > 0
+            # Sample firms proportional to market share
+            n_sample = min(n_apply_int, length(firm2_valid))
+            selected_firms = StatsBase.sample(Agents.abmrng(model), firm2_valid, 
+                                            Weights(weights), n_sample, replace=false)
+            
+            # Add to firm application queues
+            for fid in selected_firms
+                push!(model[fid].applications, worker.id)
+            end
+        end
     end
 end
 

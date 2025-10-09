@@ -123,12 +123,12 @@ function initialize_model(params::ModelParameters=load_baseline_parameters())
     # This ensures firms have proper L_d values at t=0 before first hiring
     initialize_labor_demand!(model)
     
-    # CRITICAL: Perform initial labor market matching to establish baseline employment
-    # Without this, all workers start unemployed and firms may fail to hire in period 1
-    perform_initial_hiring!(model)
-    
-    # Update employment statistics after initial hiring
-    update_employment_statistics!(model)
+    # NOTE: In the C model, workers start unemployed and employment is established
+    # naturally through the labor market matching in period 1. We follow the same pattern.
+    # Initial employment statistics reflect all workers unemployed
+    model.L = 0
+    model.U = model.Ls
+    model.Ue = 1.0
     
     return model
 end
@@ -498,117 +498,4 @@ function initialize_labor_demand!(model)
     end
 end
 
-"""
-    perform_initial_hiring!(model)
 
-Perform initial hiring to establish baseline employment at t=0.
-This ensures firms start with workers and can produce from period 1.
-Matches C model's implicit initial state where firms have workers.
-"""
-function perform_initial_hiring!(model)
-    params = model.params
-    
-    # Distribute workers to firms proportionally based on labor demand
-    # This creates initial employment matching
-    
-    # Calculate total labor demand
-    total_L1d = sum(model[fid].L1d for fid in model.firm1_ids if Agents.hasid(model, fid); init=0.0)
-    total_L2d = sum(model[fid].L2d for fid in model.firm2_ids if Agents.hasid(model, fid); init=0.0)
-    total_Ld = total_L1d + total_L2d
-    
-    # Safety check: if no demand, set minimal employment
-    if total_Ld <= 0
-        total_Ld = Float64(model.Ls)
-        # Distribute equally
-        for fid in model.firm1_ids
-            model[fid].L1d = max(1.0, Float64(model.Ls) / (length(model.firm1_ids) + length(model.firm2_ids)))
-        end
-        for fid in model.firm2_ids
-            model[fid].L2d = max(1.0, Float64(model.Ls) / (length(model.firm1_ids) + length(model.firm2_ids)))
-        end
-        total_L1d = sum(model[fid].L1d for fid in model.firm1_ids; init=0.0)
-        total_L2d = sum(model[fid].L2d for fid in model.firm2_ids; init=0.0)
-        total_Ld = total_L1d + total_L2d
-    end
-    
-    # Allocate workers proportionally (may not fill all demand if insufficient workers)
-    fraction_to_hire = min(0.95, Float64(model.Ls) / total_Ld)  # Hire up to 95% initially
-    
-    workers_available = collect(model.worker_ids)
-    Random.shuffle!(Agents.abmrng(model), workers_available)
-    worker_idx = 1
-    
-    # Hire for Firm1
-    for fid in model.firm1_ids
-        if !Agents.hasid(model, fid)
-            continue
-        end
-        firm = model[fid]
-        
-        # Number to hire for this firm
-        n_hire = Int(floor(firm.L1d * fraction_to_hire))
-        n_hire = min(n_hire, length(workers_available) - worker_idx + 1)
-        
-        # Base wage for initial hiring
-        w_initial = max(1.0, model.wMin)
-        
-        for i in 1:n_hire
-            if worker_idx > length(workers_available)
-                break
-            end
-            
-            wid = workers_available[worker_idx]
-            worker = model[wid]
-            
-            # Hire worker
-            worker.employed = 1
-            worker.employer = firm.id
-            worker.w = w_initial
-            worker.wRes = w_initial
-            worker.Te = 0
-            worker.Tc = params.Tc
-            
-            push!(firm.worker_ids, wid)
-            firm.L1 += 1
-            
-            worker_idx += 1
-        end
-    end
-    
-    # Hire for Firm2
-    for fid in model.firm2_ids
-        if !Agents.hasid(model, fid)
-            continue
-        end
-        firm = model[fid]
-        
-        # Number to hire for this firm
-        n_hire = Int(floor(firm.L2d * fraction_to_hire))
-        n_hire = min(n_hire, length(workers_available) - worker_idx + 1)
-        
-        # Base wage for initial hiring
-        w_initial = max(1.0, model.wMin)
-        
-        for i in 1:n_hire
-            if worker_idx > length(workers_available)
-                break
-            end
-            
-            wid = workers_available[worker_idx]
-            worker = model[wid]
-            
-            # Hire worker
-            worker.employed = 2
-            worker.employer = firm.id
-            worker.w = w_initial
-            worker.wRes = w_initial
-            worker.Te = 0
-            worker.Tc = params.Tc
-            
-            push!(firm.worker_ids, wid)
-            firm.L2 += 1
-            
-            worker_idx += 1
-        end
-    end
-end
