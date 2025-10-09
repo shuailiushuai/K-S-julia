@@ -141,3 +141,35 @@ For questions about the fixes or implementation details, refer to:
 - `FIXES_FINAL_ENGLISH.md` - Detailed technical explanation
 - `FIXES_FINAL_CHINESE.md` - 详细技术说明（中文）
 - Test files for usage examples
+
+---
+
+## Latest Fixes (copilot/debug-replication-model branch)
+
+### Additional Critical Fixes - December 2024
+
+**New Problems Identified:**
+- Period 4-5: GDP drops to 0 despite 88% employment  
+- Long-term: Employment collapses to 100% unemployment
+
+**Root Causes Found:**
+
+1. **Missing Lifecycle Tracking** - Firm2 lacked `life2cycle` variable from C model
+2. **Labor Demand Collapse** - L2d→0 when Q2=0, even with capital
+3. **Expectation Formation** - D2e could drop too sharply
+4. **Production Planning** - Q2 could be 0 for firms with capital
+5. **Effective Production Bug** - Q2e=0 despite employment (Period 4 bug)
+
+**Files Modified:**
+- `src/types.jl` - Added life2cycle field
+- `src/scheduling.jl` - Lifecycle state management
+- `src/firm2_behavior.jl` - 4 critical functions fixed
+- `src/initialization.jl` - Initialize with operating state
+
+**Documentation:**
+- `BUG_FIX_REPORT_CN.md` - 中文详细说明
+- `VERIFICATION_CHECKLIST.md` - Testing guide
+
+**Key Fix**: Q2e now maintains minimum production when workers and capital exist, fixing the "employment but GDP=0" bug.
+
+See commit history for detailed changes.
